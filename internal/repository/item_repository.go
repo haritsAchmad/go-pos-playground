@@ -175,3 +175,35 @@ func (r *ItemRepository) Update(
 
 	return nil
 }
+
+func (r *ItemRepository) Delete(
+	ctx context.Context,
+	id int,
+) error {
+
+	query := fmt.Sprintf(`
+		UPDATE %s.items
+		SET
+			deleted_at = NOW(),
+			updated_at = NOW()
+		WHERE
+			id = $1
+			AND deleted_at IS NULL
+	`, r.schema)
+
+	commandTag, err := r.db.Exec(
+		ctx,
+		query,
+		id,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	if commandTag.RowsAffected() == 0 {
+		return ErrItemNotFound
+	}
+
+	return nil
+}

@@ -37,6 +37,8 @@ func New(itemHandler *handler.ItemHandler) *http.ServeMux {
 			itemHandler.FindByID(w, r)
 		case http.MethodPut:
 			itemHandler.Update(w, r)
+		case http.MethodDelete:
+			itemHandler.Delete(w, r)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}

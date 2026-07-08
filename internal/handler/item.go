@@ -125,3 +125,61 @@ func (h *ItemHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	response.Success(w, http.StatusOK, "item updated successfully", nil)
 }
+
+func (h *ItemHandler) Delete(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+
+	id, err := getIDFromPath(
+		r.URL.Path,
+	)
+
+	if err != nil {
+
+		response.Error(
+			w,
+			http.StatusBadRequest,
+			"invalid item id",
+		)
+
+		return
+	}
+
+	err = h.itemRepo.Delete(
+		r.Context(),
+		id,
+	)
+
+	if errors.Is(
+		err,
+		repository.ErrItemNotFound,
+	) {
+
+		response.Error(
+			w,
+			http.StatusNotFound,
+			"item not found",
+		)
+
+		return
+	}
+
+	if err != nil {
+
+		response.Error(
+			w,
+			http.StatusInternalServerError,
+			"failed to delete item",
+		)
+
+		return
+	}
+
+	response.Success(
+		w,
+		http.StatusOK,
+		"item deleted successfully",
+		nil,
+	)
+}
