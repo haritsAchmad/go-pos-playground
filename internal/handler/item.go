@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	dto "go-inventory-playground/internal/dto/items"
+	"go-inventory-playground/internal/pkg/response"
 	"go-inventory-playground/internal/repository"
 
 	"github.com/go-playground/validator/v10"
@@ -23,53 +24,35 @@ func NewItemHandler(itemRepo *repository.ItemRepository) *ItemHandler {
 }
 
 func (h *ItemHandler) FindAll(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	items, err := h.itemRepo.FindAll(r.Context())
 	if err != nil {
-		http.Error(w, `{"message":"failed to get items"}`, http.StatusInternalServerError)
+		response.Error(w, http.StatusInternalServerError, "failed to get items")
 		return
 	}
 
-	json.NewEncoder(w).Encode(items)
+	response.Success(w, http.StatusOK, "items fetched successfully", items)
 }
 
-func (h *ItemHandler) Create(
-	w http.ResponseWriter,
-	r *http.Request,
-) {
-
+func (h *ItemHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req dto.CreateItemRequest
 
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		response.Error(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	err = validate.Struct(req)
 	if err != nil {
-		http.Error(w, "validation failed", http.StatusBadRequest)
+		response.Error(w, http.StatusBadRequest, "validation failed")
 		return
 	}
 
-	err = h.itemRepo.Create(
-		r.Context(),
-		req,
-	)
-
+	err = h.itemRepo.Create(r.Context(), req)
 	if err != nil {
-		http.Error(w, "failed to create item", http.StatusInternalServerError)
+		response.Error(w, http.StatusInternalServerError, "failed to create item")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-
-	w.WriteHeader(http.StatusCreated)
-
-	json.NewEncoder(w).Encode(
-		map[string]any{
-			"message": "item created successfully",
-		},
-	)
+	response.Success(w, http.StatusCreated, "item created successfully", nil)
 }
