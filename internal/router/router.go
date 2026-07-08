@@ -10,7 +10,27 @@ func New(itemHandler *handler.ItemHandler) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", handler.Health)
-	mux.HandleFunc("/items", itemHandler.FindAll)
+	mux.HandleFunc("/items", func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+
+		switch r.Method {
+
+		case http.MethodGet:
+			itemHandler.FindAll(w, r)
+
+		case http.MethodPost:
+			itemHandler.Create(w, r)
+
+		default:
+			http.Error(
+				w,
+				"method not allowed",
+				http.StatusMethodNotAllowed,
+			)
+		}
+	})
 
 	return mux
 }
