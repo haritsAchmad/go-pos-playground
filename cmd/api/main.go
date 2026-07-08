@@ -1,7 +1,19 @@
 package main
 
-import "fmt"
+import (
+	"log"
+	"net/http"
+
+	"go-inventory-playground/internal/router"
+)
 
 func main() {
-	fmt.Println("Go Inventory Playground 🚀")
+
+	r := router.New()
+
+	log.Println("Server running at :8080")
+
+	if err := http.ListenAndServe(":8080", r); err != nil {
+		log.Fatal(err)
+	}
 }
