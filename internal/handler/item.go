@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -88,4 +89,39 @@ func getIDFromPath(path string) (int, error) {
 	}
 
 	return strconv.Atoi(parts[2])
+}
+
+func (h *ItemHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id, err := getIDFromPath(r.URL.Path)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid item id")
+		return
+	}
+
+	var req dto.UpdateItemRequest
+
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	err = validate.Struct(req)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "validation failed")
+		return
+	}
+
+	err = h.itemRepo.Update(r.Context(), id, req)
+	if errors.Is(err, repository.ErrItemNotFound) {
+		response.Error(w, http.StatusNotFound, "item not found")
+		return
+	}
+
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to update item")
+		return
+	}
+
+	response.Success(w, http.StatusOK, "item updated successfully", nil)
 }

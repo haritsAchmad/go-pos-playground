@@ -17,6 +17,8 @@ type ItemRepository struct {
 	schema string
 }
 
+var ErrItemNotFound = errors.New("item not found")
+
 func NewItemRepository(db *pgxpool.Pool, schema string) *ItemRepository {
 	return &ItemRepository{
 		db:     db,
@@ -135,4 +137,41 @@ func (r *ItemRepository) FindByID(ctx context.Context, id int) (*entity.Item, er
 	}
 
 	return &item, nil
+}
+
+func (r *ItemRepository) Update(
+	ctx context.Context,
+	id int,
+	req dto.UpdateItemRequest,
+) error {
+	query := fmt.Sprintf(`
+		UPDATE %s.items
+		SET
+			name = $1,
+			description = $2,
+			stock = $3,
+			updated_at = NOW()
+		WHERE
+			id = $4
+			AND deleted_at IS NULL
+	`, r.schema)
+
+	commandTag, err := r.db.Exec(
+		ctx,
+		query,
+		req.Name,
+		req.Description,
+		req.Stock,
+		id,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	if commandTag.RowsAffected() == 0 {
+		return ErrItemNotFound
+	}
+
+	return nil
 }
