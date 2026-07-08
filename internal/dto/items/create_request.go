@@ -1,7 +1,9 @@
 package dto
 
 type CreateItemRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Stock       int    `json:"stock"`
+	Name string `json:"name" validate:"required,min=3,max=100"`
+
+	Description string `json:"description" validate:"max=500"`
+
+	Stock int `json:"stock" validate:"gte=0"`
 }

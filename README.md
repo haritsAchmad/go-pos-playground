@@ -2,11 +2,11 @@
 
 Backend playground untuk belajar dan bereksperimen menggunakan Go dan PostgreSQL.
 
-> Tujuan project ini bukan hanya membuat CRUD, tetapi memahami bagaimana membangun backend yang rapi, terstruktur, dan mudah dikembangkan.
+> Project ini dibuat sebagai laboratorium backend untuk mempelajari Go dari dasar menggunakan Standard Library tanpa framework terlebih dahulu, kemudian berkembang secara bertahap mengikuti kebutuhan.
 
 ---
 
-## Tech Stack
+# Tech Stack
 
 - Go
 - PostgreSQL 18
@@ -15,55 +15,57 @@ Backend playground untuk belajar dan bereksperimen menggunakan Go dan PostgreSQL
 
 ---
 
-## Features
+# Current Features
 
-### Completed
+## Completed
 
 - [x] HTTP Server
 - [x] Health Endpoint
 - [x] PostgreSQL Connection
-- [x] Environment Configuration (.env)
+- [x] Environment Configuration
 - [x] GET /items
+- [x] POST /items
 
-### In Progress
-
-- [ ] POST /items
-- [ ] PUT /items
-- [ ] DELETE /items
-
-### Planned
+## Next Milestones
 
 - [ ] Validation
-- [ ] Pagination
+- [ ] PUT /items
+- [ ] DELETE /items
 - [ ] Search
+- [ ] Pagination
 - [ ] Sorting
 - [ ] Transaction
-- [ ] Authentication
+- [ ] Middleware
+- [ ] Authentication (JWT)
 - [ ] Unit Test
 - [ ] Docker
-- [ ] Redis Cache
+- [ ] Redis
 
 ---
 
-## Project Structure
+# Project Structure
 
 ```text
 cmd/
+└── api/
+
 internal/
-    config/
-    database/
-    handler/
-    model/
-    repository/
-    router/
+├── config/
+├── database/
+├── dto/
+├── entity/
+├── handler/
+├── repository/
+└── router/
+
 migrations/
 ```
 
 ---
 
-## API
+# API Endpoints
 
-### Health Check
+## Health Check
 
 GET /health
 
@@ -78,7 +80,7 @@ Response
 
 ---
 
-### Get Items
+## Get Items
 
 GET /items
 
@@ -97,9 +99,72 @@ Response
 
 ---
 
-## Learning Notes
+## Create Item
 
-Project ini dibuat sebagai playground untuk mempelajari:
+POST /items
+
+Request
+
+```json
+{
+    "name": "Laptop",
+    "description": "ThinkPad T14",
+    "stock": 8
+}
+```
+
+Response
+
+```json
+{
+    "message": "item created successfully"
+}
+```
+
+---
+
+# Roadmap
+
+## v0.1
+
+- HTTP Server
+- Health Endpoint
+
+## v0.2
+
+- PostgreSQL Connection
+- GET /items
+- POST /items
+
+## v0.3
+
+- Request Validation
+
+## v0.4
+
+- Update Item
+
+## v0.5
+
+- Delete Item
+
+## v0.6
+
+- Search & Pagination
+
+## v0.7
+
+- JWT Authentication
+
+## v1.0
+
+- Complete Inventory REST API
+
+---
+
+# Learning Goals
+
+Project ini dibuat untuk mempelajari:
 
 - Go Standard Library
 - REST API
@@ -107,3 +172,4 @@ Project ini dibuat sebagai playground untuk mempelajari:
 - Clean Project Structure
 - Git Workflow
 - Backend Best Practices
+- Layered Architecture

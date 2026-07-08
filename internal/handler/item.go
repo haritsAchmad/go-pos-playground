@@ -6,7 +6,11 @@ import (
 
 	dto "go-inventory-playground/internal/dto/items"
 	"go-inventory-playground/internal/repository"
+
+	"github.com/go-playground/validator/v10"
 )
+
+var validate = validator.New()
 
 type ItemHandler struct {
 	itemRepo *repository.ItemRepository
@@ -39,13 +43,13 @@ func (h *ItemHandler) Create(
 
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
 
-		http.Error(
-			w,
-			"invalid request body",
-			http.StatusBadRequest,
-		)
-
+	err = validate.Struct(req)
+	if err != nil {
+		http.Error(w, "validation failed", http.StatusBadRequest)
 		return
 	}
 
@@ -55,13 +59,7 @@ func (h *ItemHandler) Create(
 	)
 
 	if err != nil {
-
-		http.Error(
-			w,
-			"failed to create item",
-			http.StatusInternalServerError,
-		)
-
+		http.Error(w, "failed to create item", http.StatusInternalServerError)
 		return
 	}
 
