@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"go-inventory-playground/internal/model"
+	dto "go-inventory-playground/internal/dto/items"
+	"go-inventory-playground/internal/entity"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,7 +22,7 @@ func NewItemRepository(db *pgxpool.Pool, schema string) *ItemRepository {
 	}
 }
 
-func (r *ItemRepository) FindAll(ctx context.Context) ([]model.Item, error) {
+func (r *ItemRepository) FindAll(ctx context.Context) ([]entity.Item, error) {
 	query := fmt.Sprintf(`
 		SELECT
 			id,
@@ -41,10 +42,10 @@ func (r *ItemRepository) FindAll(ctx context.Context) ([]model.Item, error) {
 	}
 	defer rows.Close()
 
-	items := make([]model.Item, 0)
+	items := make([]entity.Item, 0)
 
 	for rows.Next() {
-		var item model.Item
+		var item entity.Item
 
 		if err := rows.Scan(
 			&item.ID,
@@ -65,4 +66,35 @@ func (r *ItemRepository) FindAll(ctx context.Context) ([]model.Item, error) {
 	}
 
 	return items, nil
+}
+
+func (r *ItemRepository) Create(
+	ctx context.Context,
+	req dto.CreateItemRequest,
+) error {
+
+	query := fmt.Sprintf(`
+		INSERT INTO %s.items
+		(
+			name,
+			description,
+			stock
+		)
+		VALUES
+		(
+			$1,
+			$2,
+			$3
+		)
+	`, r.schema)
+
+	_, err := r.db.Exec(
+		ctx,
+		query,
+		req.Name,
+		req.Description,
+		req.Stock,
+	)
+
+	return err
 }
