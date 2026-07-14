@@ -127,7 +127,12 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 		return entity.Transaction{}, errors.New("supplier is required for a purchase")
 	}
 	var total int64
+	seenItems := make(map[int64]struct{}, len(req.Items))
 	for i := range req.Items {
+		if _, exists := seenItems[req.Items[i].ItemID]; exists {
+			return entity.Transaction{}, fmt.Errorf("item %d appears more than once", req.Items[i].ItemID)
+		}
+		seenItems[req.Items[i].ItemID] = struct{}{}
 		if req.Items[i].UnitPrice == 0 {
 			column := "price"
 			if req.TransactionType == "PURCHASE" {
@@ -139,6 +144,9 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 		}
 		req.Items[i].Subtotal = int64(req.Items[i].Quantity) * req.Items[i].UnitPrice
 		total += req.Items[i].Subtotal
+	}
+	if total <= 0 {
+		return entity.Transaction{}, errors.New("transaction total must be greater than zero")
 	}
 	received := req.PaidAmount
 	paid := received
@@ -265,6 +273,9 @@ func (r *CooperativeRepository) VoidTransaction(ctx context.Context, id int64, r
 		lines = append(lines, v)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	for _, v := range lines {
 		change := -v.qty
 		if kind == "SALE" {
@@ -314,19 +325,30 @@ func (r *CooperativeRepository) PayDebt(ctx context.Context, id, amount int64, n
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var remaining int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_amount FROM %s.debts WHERE id=$1 FOR UPDATE`, r.schema), id).Scan(&remaining); err != nil {
+	var remaining, transactionID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_amount,transaction_id FROM %s.debts WHERE id=$1 FOR UPDATE`, r.schema), id).Scan(&remaining, &transactionID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("piutang tidak ditemukan")
+		}
 		return err
 	}
 	if amount <= 0 || amount > remaining {
-		return errors.New("invalid payment amount")
+		return errors.New("jumlah pembayaran harus lebih dari 0 dan tidak boleh melebihi sisa piutang")
 	}
-	_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.debt_payments(debt_id,amount,notes) VALUES($1,$2,$3)`, r.schema), id, amount, notes)
-	if err != nil {
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.debt_payments(debt_id,amount,notes) VALUES($1,$2,$3)`, r.schema), id, amount, strings.TrimSpace(notes)); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.debts SET remaining_amount=remaining_amount-$1,status=CASE WHEN remaining_amount-$1=0 THEN 'PAID' ELSE 'OPEN' END,updated_at=NOW() WHERE id=$2`, r.schema), amount, id)
-	if err != nil {
+	newRemaining := remaining - amount
+	debtStatus := "OPEN"
+	paymentStatus := "PARTIAL"
+	if newRemaining == 0 {
+		debtStatus = "PAID"
+		paymentStatus = "PAID"
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.debts SET remaining_amount=$1,status=$2,updated_at=NOW() WHERE id=$3`, r.schema), newRemaining, debtStatus, id); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.transactions SET paid_amount=paid_amount+$1,payment_status=$2 WHERE id=$3 AND status='ACTIVE'`, r.schema), amount, paymentStatus, transactionID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
