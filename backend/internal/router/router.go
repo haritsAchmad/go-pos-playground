@@ -9,6 +9,7 @@ import (
 func New(
 	itemHandler *handler.ItemHandler,
 	supplierHandler *handler.SupplierHandler,
+	cooperativeHandler *handler.CooperativeHandler,
 ) *http.ServeMux {
 	mux := http.NewServeMux()
 
@@ -71,6 +72,14 @@ func New(
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	mux.HandleFunc("/dashboard", cooperativeHandler.Dashboard)
+	mux.HandleFunc("/masters/", cooperativeHandler.Masters)
+	mux.HandleFunc("/customers", cooperativeHandler.Customers)
+	mux.HandleFunc("/customers/", cooperativeHandler.CustomerDetail)
+	mux.HandleFunc("/transactions", cooperativeHandler.Transactions)
+	mux.HandleFunc("/transactions/", cooperativeHandler.VoidTransaction)
+	mux.HandleFunc("/debts", cooperativeHandler.Debts)
+	mux.HandleFunc("/debts/", cooperativeHandler.PayDebt)
 
 	return mux
 }
