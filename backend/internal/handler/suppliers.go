@@ -41,7 +41,7 @@ func (h *SupplierHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	err = validate.Struct(req)
 	if err != nil {
-		response.Error(w, http.StatusBadRequest, "validation failed")
+		response.Error(w, http.StatusBadRequest, "nama, alamat, dan nomor telepon 8-20 digit wajib diisi")
 		return
 	}
 
@@ -92,7 +92,7 @@ func (h *SupplierHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	err = validate.Struct(req)
 	if err != nil {
-		response.Error(w, http.StatusBadRequest, "validation failed")
+		response.Error(w, http.StatusBadRequest, "nama, alamat, dan nomor telepon 8-20 digit wajib diisi")
 		return
 	}
 

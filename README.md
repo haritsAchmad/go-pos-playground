@@ -1,6 +1,25 @@
-# Go Inventory Playground
+# Koperasi Operational Playground
 
-Backend playground untuk belajar dan bereksperimen menggunakan Go dan PostgreSQL.
+Aplikasi operasional koperasi hasil adaptasi modul SMS516, menggunakan REST API Go, PostgreSQL, dan frontend Nuxt.
+
+## Fitur koperasi
+
+- Dashboard penjualan, pembelian, piutang, dan stok
+- Master barang, kategori, merek, satuan, supplier, serta metode bayar
+- Pelanggan member dan non-member; pelanggan `UMUM` tersedia otomatis
+- Kasir/penjualan dengan pengurangan stok atomik
+- Pembelian/penerimaan barang dengan penambahan stok atomik
+- Histori transaksi, piutang, dan pembayaran piutang
+- Tidak membawa modul saldo maupun autentikasi dari aplikasi lama
+
+## Menjalankan aplikasi
+
+```powershell
+go run ./cmd/api
+npm.cmd --prefix frontend run dev
+```
+
+Frontend tersedia di `http://localhost:3000` dan meneruskan request `/api` ke backend pada `http://localhost:8080`.
 
 > Project ini dibuat sebagai laboratorium backend untuk mempelajari Go dari dasar menggunakan Standard Library tanpa framework terlebih dahulu, kemudian berkembang secara bertahap mengikuti kebutuhan.
 
