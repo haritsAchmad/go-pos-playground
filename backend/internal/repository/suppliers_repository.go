@@ -30,6 +30,7 @@ func (r *SupplierRepository) FindAll(ctx context.Context) ([]entity.Suppliers, e
 	query := fmt.Sprintf(`
 		SELECT
 			id,
+			code,
 			name,
 			phone,
 			address,
@@ -53,6 +54,7 @@ func (r *SupplierRepository) FindAll(ctx context.Context) ([]entity.Suppliers, e
 
 		if err := rows.Scan(
 			&supplier.ID,
+			&supplier.Code,
 			&supplier.Name,
 			&supplier.Phone,
 			&supplier.Address,
@@ -80,6 +82,7 @@ func (r *SupplierRepository) Create(
 	query := fmt.Sprintf(`
 		INSERT INTO %s.suppliers
 		(
+			code,
 			name,
 			phone,
 			address
@@ -88,13 +91,15 @@ func (r *SupplierRepository) Create(
 		(
 			$1,
 			$2,
-			$3
+			$3,
+			$4
 		)
 	`, r.schema)
 
 	_, err := r.db.Exec(
 		ctx,
 		query,
+		req.Code,
 		req.Name,
 		req.Phone,
 		req.Address,
@@ -107,6 +112,7 @@ func (r *SupplierRepository) FindByID(ctx context.Context, id int) (*entity.Supp
 	query := fmt.Sprintf(`
 		SELECT
 			id,
+			code,
 			name,
 			phone,
 			address,
@@ -121,6 +127,7 @@ func (r *SupplierRepository) FindByID(ctx context.Context, id int) (*entity.Supp
 
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&supplier.ID,
+		&supplier.Code,
 		&supplier.Name,
 		&supplier.Phone,
 		&supplier.Address,
@@ -147,18 +154,20 @@ func (r *SupplierRepository) Update(
 	query := fmt.Sprintf(`
 		UPDATE %s.suppliers
 		SET
-			name = $1,
-			phone = $2,
-			address = $3,
+			code = $1,
+			name = $2,
+			phone = $3,
+			address = $4,
 			updated_at = NOW()
 		WHERE
-			id = $4
+			id = $5
 			AND deleted_at IS NULL
 	`, r.schema)
 
 	commandTag, err := r.db.Exec(
 		ctx,
 		query,
+		req.Code,
 		req.Name,
 		req.Phone,
 		req.Address,

@@ -182,6 +182,26 @@ func (h *CooperativeHandler) Transactions(w http.ResponseWriter, r *http.Request
 }
 
 func (h *CooperativeHandler) VoidTransaction(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut && !strings.HasSuffix(r.URL.Path, "/void") {
+		part := strings.Trim(strings.TrimPrefix(r.URL.Path, "/transactions/"), "/")
+		id, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			response.Error(w, 400, "ID transaksi tidak valid")
+			return
+		}
+		var req entity.CreateTransactionRequest
+		if json.NewDecoder(r.Body).Decode(&req) != nil || validate.Struct(req) != nil {
+			response.Error(w, 400, "invalid transaction data")
+			return
+		}
+		data, err := h.repo.UpdateTransaction(r.Context(), id, req)
+		if err != nil {
+			response.Error(w, 400, err.Error())
+			return
+		}
+		response.Success(w, 200, "transaksi berhasil diubah dan stok telah disesuaikan", data)
+		return
+	}
 	if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/void") {
 		response.Error(w, 405, "method not allowed")
 		return
