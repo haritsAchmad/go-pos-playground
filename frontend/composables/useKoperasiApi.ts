@@ -5,7 +5,7 @@ export function useKoperasiApi() {
     return payload.data
   }
   return {
-    dashboard: (year = new Date().getFullYear()) => request<any>(`/dashboard?year=${year}`),
+    dashboard: (year = new Date().getFullYear(), month = new Date().getMonth() + 1) => request<any>(`/dashboard?year=${year}&month=${month}`),
     items: () => request<any[]>('/items'),
     suppliers: () => request<any[]>('/suppliers'),
     customers: () => request<any[]>('/customers'),

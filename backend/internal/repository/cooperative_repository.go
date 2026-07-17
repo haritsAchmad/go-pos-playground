@@ -559,12 +559,50 @@ func (r *CooperativeRepository) PayDebt(ctx context.Context, id, amount int64, n
 	return tx.Commit(ctx)
 }
 
-func (r *CooperativeRepository) Dashboard(ctx context.Context, year int) (entity.Dashboard, error) {
+func (r *CooperativeRepository) Dashboard(ctx context.Context, year, month int) (entity.Dashboard, error) {
 	var v entity.Dashboard
 	v.Year = year
+	v.Month = month
 	v.MonthlySales = make([]int64, 12)
 	err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((SELECT SUM(grand_total) FROM %s.transactions WHERE transaction_type='SALE' AND status='ACTIVE' AND transaction_date::date=CURRENT_DATE),0),COALESCE((SELECT SUM(grand_total) FROM %s.transactions WHERE transaction_type='PURCHASE' AND status='ACTIVE' AND transaction_date::date=CURRENT_DATE),0),COALESCE((SELECT SUM(remaining_amount) FROM %s.debts WHERE status='OPEN'),0),(SELECT COUNT(*) FROM %s.items WHERE deleted_at IS NULL AND stock<=5),(SELECT COUNT(*) FROM %s.items WHERE deleted_at IS NULL),(SELECT COUNT(*) FROM %s.customers WHERE deleted_at IS NULL),(SELECT COUNT(*) FROM %s.suppliers WHERE deleted_at IS NULL)`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)).Scan(&v.TodaySales, &v.TodayPurchases, &v.OpenDebt, &v.LowStockItems, &v.TotalItems, &v.TotalCustomers, &v.TotalSuppliers)
 	if err != nil {
+		return v, err
+	}
+	periodRows, err := r.db.Query(ctx, fmt.Sprintf(`
+		WITH periods(label,start_at,end_at) AS (
+			VALUES
+			('today',CURRENT_DATE::timestamp,(CURRENT_DATE+1)::timestamp),
+			('yesterday',(CURRENT_DATE-1)::timestamp,CURRENT_DATE::timestamp),
+			('month',make_date($1,$2,1)::timestamp,(make_date($1,$2,1)+INTERVAL '1 month')::timestamp),
+			('year',make_date($1,1,1)::timestamp,make_date($1+1,1,1)::timestamp)
+		)
+		SELECT p.label,
+			COALESCE((SELECT SUM(t.grand_total) FROM %s.transactions t WHERE t.status='ACTIVE' AND t.transaction_type='SALE' AND t.transaction_date>=p.start_at AND t.transaction_date<p.end_at),0),
+			COALESCE((SELECT SUM(t.grand_total) FROM %s.transactions t WHERE t.status='ACTIVE' AND t.transaction_type='PURCHASE' AND t.transaction_date>=p.start_at AND t.transaction_date<p.end_at),0),
+			COALESCE((SELECT SUM(d.remaining_amount) FROM %s.debts d WHERE d.created_at>=p.start_at AND d.created_at<p.end_at),0)
+		FROM periods p`, r.schema, r.schema, r.schema), year, month)
+	if err != nil {
+		return v, err
+	}
+	defer periodRows.Close()
+	for periodRows.Next() {
+		var label string
+		var summary entity.PeriodSummary
+		if err := periodRows.Scan(&label, &summary.Income, &summary.Expense, &summary.Debt); err != nil {
+			return v, err
+		}
+		switch label {
+		case "today":
+			v.Today = summary
+		case "yesterday":
+			v.Yesterday = summary
+		case "month":
+			v.SelectedMonth = summary
+		case "year":
+			v.SelectedYear = summary
+		}
+	}
+	if err := periodRows.Err(); err != nil {
 		return v, err
 	}
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT EXTRACT(MONTH FROM transaction_date)::int,SUM(grand_total) FROM %s.transactions WHERE transaction_type='SALE' AND status='ACTIVE' AND EXTRACT(YEAR FROM transaction_date)=$1 GROUP BY 1`, r.schema), year)

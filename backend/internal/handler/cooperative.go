@@ -23,10 +23,14 @@ func NewCooperativeHandler(repo *repository.CooperativeRepository) *CooperativeH
 
 func (h *CooperativeHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	year, _ := strconv.Atoi(r.URL.Query().Get("year"))
+	month, _ := strconv.Atoi(r.URL.Query().Get("month"))
 	if year < 2000 || year > 2100 {
 		year = time.Now().Year()
 	}
-	data, err := h.repo.Dashboard(r.Context(), year)
+	if month < 1 || month > 12 {
+		month = int(time.Now().Month())
+	}
+	data, err := h.repo.Dashboard(r.Context(), year, month)
 	if err != nil {
 		response.Error(w, 500, "failed to load dashboard")
 		return
