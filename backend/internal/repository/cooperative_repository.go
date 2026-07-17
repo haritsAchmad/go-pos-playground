@@ -245,25 +245,33 @@ func (r *CooperativeRepository) Transactions(ctx context.Context, kind string) (
 		return nil, err
 	}
 	rows.Close()
+	if len(result) == 0 {
+		return result, nil
+	}
+	ids := make([]int64, len(result))
+	indexByID := make(map[int64]int, len(result))
 	for i := range result {
-		itemRows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT ti.item_id,i.name,ti.quantity,ti.unit_price,ti.subtotal FROM %s.transaction_items ti JOIN %s.items i ON i.id=ti.item_id WHERE ti.transaction_id=$1 ORDER BY ti.id`, r.schema, r.schema), result[i].ID)
-		if err != nil {
-			return nil, err
-		}
+		ids[i] = result[i].ID
+		indexByID[result[i].ID] = i
 		result[i].Items = make([]entity.TransactionLine, 0)
-		for itemRows.Next() {
-			var line entity.TransactionLine
-			if err := itemRows.Scan(&line.ItemID, &line.ItemName, &line.Quantity, &line.UnitPrice, &line.Subtotal); err != nil {
-				itemRows.Close()
-				return nil, err
-			}
-			result[i].Items = append(result[i].Items, line)
-		}
-		if err := itemRows.Err(); err != nil {
-			itemRows.Close()
+	}
+	itemRows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT ti.transaction_id,ti.item_id,i.name,ti.quantity,ti.unit_price,ti.subtotal FROM %s.transaction_items ti JOIN %s.items i ON i.id=ti.item_id WHERE ti.transaction_id=ANY($1) ORDER BY ti.transaction_id,ti.id`, r.schema, r.schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer itemRows.Close()
+	for itemRows.Next() {
+		var transactionID int64
+		var line entity.TransactionLine
+		if err := itemRows.Scan(&transactionID, &line.ItemID, &line.ItemName, &line.Quantity, &line.UnitPrice, &line.Subtotal); err != nil {
 			return nil, err
 		}
-		itemRows.Close()
+		if index, ok := indexByID[transactionID]; ok {
+			result[index].Items = append(result[index].Items, line)
+		}
+	}
+	if err := itemRows.Err(); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
