@@ -133,6 +133,15 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 			return entity.Transaction{}, fmt.Errorf("item %d appears more than once", req.Items[i].ItemID)
 		}
 		seenItems[req.Items[i].ItemID] = struct{}{}
+		if req.TransactionType == "PURCHASE" {
+			var supplied bool
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.items WHERE id=$1 AND supplier_id=$2 AND deleted_at IS NULL)`, r.schema), req.Items[i].ItemID, req.SupplierID).Scan(&supplied); err != nil {
+				return entity.Transaction{}, err
+			}
+			if !supplied {
+				return entity.Transaction{}, errors.New("barang tidak terdaftar pada supplier yang dipilih")
+			}
+		}
 		if req.Items[i].UnitPrice == 0 {
 			column := "price"
 			if req.TransactionType == "PURCHASE" {
@@ -173,7 +182,7 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 	} else if paid < total {
 		status = "PARTIAL"
 	}
-	invoice := fmt.Sprintf("%s-%s", map[string]string{"SALE": "JL", "PURCHASE": "BL"}[req.TransactionType], time.Now().Format("20060102-150405.000000"))
+	invoice := fmt.Sprintf("%s-%s", map[string]string{"SALE": "PJL", "PURCHASE": "PBL"}[req.TransactionType], time.Now().Format("20060102-150405.000000"))
 	var id int64
 	err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.transactions (invoice_no,transaction_type,customer_id,supplier_id,payment_method_id,payment_status,grand_total,paid_amount,amount_received,change_amount,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`, r.schema), invoice, req.TransactionType, req.CustomerID, req.SupplierID, req.PaymentMethodID, status, total, paid, received, changeAmount, req.Notes).Scan(&id)
 	if err != nil {
@@ -232,7 +241,195 @@ func (r *CooperativeRepository) Transactions(ctx context.Context, kind string) (
 		}
 		result = append(result, v)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for i := range result {
+		itemRows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT ti.item_id,i.name,ti.quantity,ti.unit_price,ti.subtotal FROM %s.transaction_items ti JOIN %s.items i ON i.id=ti.item_id WHERE ti.transaction_id=$1 ORDER BY ti.id`, r.schema, r.schema), result[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		result[i].Items = make([]entity.TransactionLine, 0)
+		for itemRows.Next() {
+			var line entity.TransactionLine
+			if err := itemRows.Scan(&line.ItemID, &line.ItemName, &line.Quantity, &line.UnitPrice, &line.Subtotal); err != nil {
+				itemRows.Close()
+				return nil, err
+			}
+			result[i].Items = append(result[i].Items, line)
+		}
+		if err := itemRows.Err(); err != nil {
+			itemRows.Close()
+			return nil, err
+		}
+		itemRows.Close()
+	}
+	return result, nil
+}
+
+func (r *CooperativeRepository) UpdateTransaction(ctx context.Context, id int64, req entity.CreateTransactionRequest) (entity.Transaction, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return entity.Transaction{}, err
+	}
+	defer tx.Rollback(ctx)
+	var kind, status, invoice string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT transaction_type,status,invoice_no FROM %s.transactions WHERE id=$1 FOR UPDATE`, r.schema), id).Scan(&kind, &status, &invoice); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return entity.Transaction{}, errors.New("transaksi tidak ditemukan")
+		}
+		return entity.Transaction{}, err
+	}
+	if status != "ACTIVE" {
+		return entity.Transaction{}, errors.New("transaksi yang sudah dibatalkan tidak dapat diubah")
+	}
+	if req.TransactionType != kind {
+		return entity.Transaction{}, errors.New("jenis transaksi tidak dapat diubah")
+	}
+	var payments int
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.debt_payments dp JOIN %s.debts d ON d.id=dp.debt_id WHERE d.transaction_id=$1`, r.schema, r.schema), id).Scan(&payments); err != nil {
+		return entity.Transaction{}, err
+	}
+	if payments > 0 {
+		return entity.Transaction{}, errors.New("transaksi tidak dapat diubah karena piutang sudah pernah dibayar")
+	}
+	if kind == "SALE" && req.CustomerID == nil {
+		return entity.Transaction{}, errors.New("pelanggan wajib dipilih")
+	}
+	if kind == "PURCHASE" && req.SupplierID == nil {
+		return entity.Transaction{}, errors.New("supplier wajib dipilih")
+	}
+
+	oldRows, err := tx.Query(ctx, fmt.Sprintf(`SELECT item_id,quantity FROM %s.transaction_items WHERE transaction_id=$1`, r.schema), id)
+	if err != nil {
+		return entity.Transaction{}, err
+	}
+	type stockLine struct {
+		itemID   int64
+		quantity int
+	}
+	old := make([]stockLine, 0)
+	for oldRows.Next() {
+		var v stockLine
+		if err := oldRows.Scan(&v.itemID, &v.quantity); err != nil {
+			oldRows.Close()
+			return entity.Transaction{}, err
+		}
+		old = append(old, v)
+	}
+	oldRows.Close()
+	for _, v := range old {
+		change := v.quantity
+		if kind == "PURCHASE" {
+			change = -v.quantity
+		}
+		var stock int
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT stock FROM %s.items WHERE id=$1 FOR UPDATE`, r.schema), v.itemID).Scan(&stock); err != nil {
+			return entity.Transaction{}, err
+		}
+		if stock+change < 0 {
+			return entity.Transaction{}, errors.New("pembelian tidak dapat diubah karena sebagian stoknya sudah terpakai")
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.items SET stock=stock+$1,updated_at=NOW() WHERE id=$2`, r.schema), change, v.itemID); err != nil {
+			return entity.Transaction{}, err
+		}
+	}
+
+	seen := map[int64]bool{}
+	var total int64
+	for i := range req.Items {
+		line := &req.Items[i]
+		if seen[line.ItemID] {
+			return entity.Transaction{}, errors.New("barang yang sama tidak boleh ditambahkan dua kali")
+		}
+		seen[line.ItemID] = true
+		if kind == "PURCHASE" {
+			var supplied bool
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.items WHERE id=$1 AND supplier_id=$2 AND deleted_at IS NULL)`, r.schema), line.ItemID, req.SupplierID).Scan(&supplied); err != nil {
+				return entity.Transaction{}, err
+			}
+			if !supplied {
+				return entity.Transaction{}, errors.New("barang tidak terdaftar pada supplier yang dipilih")
+			}
+		}
+		if line.UnitPrice == 0 {
+			column := "price"
+			if kind == "PURCHASE" {
+				column = "cost"
+			}
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM %s.items WHERE id=$1 AND deleted_at IS NULL`, column, r.schema), line.ItemID).Scan(&line.UnitPrice); err != nil {
+				return entity.Transaction{}, errors.New("barang tidak ditemukan")
+			}
+		}
+		line.Subtotal = int64(line.Quantity) * line.UnitPrice
+		total += line.Subtotal
+	}
+	if total <= 0 {
+		return entity.Transaction{}, errors.New("total transaksi harus lebih dari nol")
+	}
+	if req.PaymentMethodID == nil {
+		return entity.Transaction{}, errors.New("metode pembayaran wajib dipilih")
+	}
+	var method string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.payment_methods WHERE id=$1`, r.schema), req.PaymentMethodID).Scan(&method); err != nil {
+		return entity.Transaction{}, errors.New("metode pembayaran tidak valid")
+	}
+	received := req.PaidAmount
+	paid := received
+	if paid > total {
+		paid = total
+	}
+	changeAmount := received - paid
+	if received < total && !strings.EqualFold(method, "Piutang") {
+		return entity.Transaction{}, fmt.Errorf("pembayaran kurang Rp%d; pilih metode Piutang atau masukkan pembayaran penuh", total-received)
+	}
+	if kind == "PURCHASE" && received < total {
+		return entity.Transaction{}, fmt.Errorf("pembayaran pembelian kurang Rp%d", total-received)
+	}
+	paymentStatus := "PAID"
+	if paid == 0 {
+		paymentStatus = "UNPAID"
+	} else if paid < total {
+		paymentStatus = "PARTIAL"
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.debts WHERE transaction_id=$1`, r.schema), id); err != nil {
+		return entity.Transaction{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.transaction_items WHERE transaction_id=$1`, r.schema), id); err != nil {
+		return entity.Transaction{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.transactions SET customer_id=$1,supplier_id=$2,payment_method_id=$3,payment_status=$4,grand_total=$5,paid_amount=$6,amount_received=$7,change_amount=$8,notes=$9 WHERE id=$10`, r.schema), req.CustomerID, req.SupplierID, req.PaymentMethodID, paymentStatus, total, paid, received, changeAmount, req.Notes, id); err != nil {
+		return entity.Transaction{}, err
+	}
+	for _, line := range req.Items {
+		var stock int
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT stock FROM %s.items WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, r.schema), line.ItemID).Scan(&stock); err != nil {
+			return entity.Transaction{}, errors.New("barang tidak ditemukan")
+		}
+		change := line.Quantity
+		if kind == "SALE" {
+			change = -line.Quantity
+		}
+		if stock+change < 0 {
+			return entity.Transaction{}, fmt.Errorf("stok tidak cukup untuk %d", line.ItemID)
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.transaction_items(transaction_id,item_id,quantity,unit_price,subtotal) VALUES($1,$2,$3,$4,$5)`, r.schema), id, line.ItemID, line.Quantity, line.UnitPrice, line.Subtotal); err != nil {
+			return entity.Transaction{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.items SET stock=stock+$1,updated_at=NOW() WHERE id=$2`, r.schema), change, line.ItemID); err != nil {
+			return entity.Transaction{}, err
+		}
+	}
+	if kind == "SALE" && paid < total {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.debts(transaction_id,customer_id,original_amount,remaining_amount) VALUES($1,$2,$3,$3)`, r.schema), id, req.CustomerID, total-paid); err != nil {
+			return entity.Transaction{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return entity.Transaction{}, err
+	}
+	return entity.Transaction{ID: id, InvoiceNo: invoice, TransactionType: kind, GrandTotal: total, PaidAmount: paid, AmountReceived: received, ChangeAmount: changeAmount, PaymentStatus: paymentStatus, Status: "ACTIVE"}, nil
 }
 
 func (r *CooperativeRepository) VoidTransaction(ctx context.Context, id int64, reason string) error {

@@ -4,6 +4,7 @@ import "time"
 
 type Suppliers struct {
 	ID        int       `json:"id"`
+	Code      string    `json:"code"`
 	Name      string    `json:"name"`
 	Phone     string    `json:"phone"`
 	Address   string    `json:"address"`

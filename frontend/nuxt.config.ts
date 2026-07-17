@@ -7,5 +7,5 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: { apiBase: '/api' },
   },
-  routeRules: { '/api/**': { proxy: 'http://localhost:8080/**' } },
+  routeRules: { '/api/**': { proxy: 'http://localhost:8082/**' } },
 })
