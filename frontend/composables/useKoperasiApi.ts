@@ -1,10 +1,19 @@
 export function useKoperasiApi() {
   const baseURL = useRuntimeConfig().public.apiBase
+  const token = useCookie<string | null>('pos_access_token', { sameSite: 'strict' })
   const request = async <T>(path: string, options: Record<string, unknown> = {}) => {
-    const payload = await $fetch<{ success: boolean; message: string; data: T }>(path, { baseURL, ...options })
+    const headers = token.value ? { Authorization: `Bearer ${token.value}` } : {}
+    const payload = await $fetch<{ success: boolean; message: string; data: T }>(path, { baseURL, headers, ...options })
     return payload.data
   }
   return {
+    token,
+    login: (email: string, password: string) => request<any>('/auth/login', { method: 'POST', body: { email, password } }),
+    me: () => request<any>('/auth/me'),
+    users: () => request<any[]>('/users'),
+    createUser: (body: any) => request('/users', { method: 'POST', body }),
+    updateUser: (id: number, body: any) => request(`/users/${id}`, { method: 'PUT', body }),
+    deleteUser: (id: number) => request(`/users/${id}`, { method: 'DELETE' }),
     dashboard: (year = new Date().getFullYear(), month = new Date().getMonth() + 1) => request<any>(`/dashboard?year=${year}&month=${month}`),
     items: () => request<any[]>('/items'),
     suppliers: () => request<any[]>('/suppliers'),

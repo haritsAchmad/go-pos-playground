@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"go-pos-playground/internal/auth"
 	"go-pos-playground/internal/config"
 	"go-pos-playground/internal/database"
 	"go-pos-playground/internal/handler"
@@ -27,6 +28,15 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Println("Database migration completed")
+	tokens, err := auth.NewManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTExpiryMinutes)
+	if err != nil {
+		log.Fatal(err)
+	}
+	authRepo := repository.NewAuthRepository(db, cfg.DBSchema)
+	if err := authRepo.SeedAdmin(ctx, cfg.AdminName, cfg.AdminEmail, cfg.AdminPassword); err != nil {
+		log.Fatal(err)
+	}
+	authHandler := handler.NewAuthHandler(authRepo, tokens)
 
 	itemRepo := repository.NewItemRepository(db, cfg.DBSchema)
 	itemHandler := handler.NewItemHandler(itemRepo)
@@ -35,7 +45,7 @@ func main() {
 	cooperativeRepo := repository.NewCooperativeRepository(db, cfg.DBSchema)
 	cooperativeHandler := handler.NewCooperativeHandler(cooperativeRepo)
 
-	r := router.New(itemHandler, supplierHandler, cooperativeHandler)
+	r := router.New(itemHandler, supplierHandler, cooperativeHandler, authHandler, tokens, authRepo)
 
 	log.Println("Server running at :" + cfg.AppPort)
 
