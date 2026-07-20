@@ -7,7 +7,7 @@ const authReady = ref(false)
 const loginError = ref('')
 const loginForm = reactive({ email:'', password:'' })
 const { formatNumber, setCurrency } = useCurrencyInput()
-const { downloadExcel, parseExcel } = useExcelData()
+const { downloadExcel, downloadWorkbook, parseExcel } = useExcelData()
 const allNav = [
   ['dashboard', 'Dashboard'], ['items', 'Barang'], ['customers', 'Pelanggan'], ['suppliers', 'Supplier'],
   ['sale', 'Kasir'], ['purchase', 'Pembelian'], ['history', 'Histori'], ['debts', 'Piutang'], ['masters', 'Pengaturan Barang'], ['users', 'Pengguna'],
@@ -58,7 +58,8 @@ const filteredItems = computed(()=>data.items.filter((v:any)=>{
 const filteredCustomers = computed(()=>data.customers.filter((v:any)=>!filters.customerSearch||[v.code,v.name,v.phone].some(x=>String(x||'').toLowerCase().includes(filters.customerSearch.toLowerCase()))))
 const filteredSuppliers = computed(()=>data.suppliers.filter((v:any)=>!filters.supplierSearch||[v.code,v.name,v.phone,v.address].some(x=>String(x||'').toLowerCase().includes(filters.supplierSearch.toLowerCase()))))
 const filteredTransactions = computed(()=>data.transactions.filter((v:any)=>{const query=filters.historySearch.toLowerCase();const matchesSearch=!query||[v.invoice_no,v.customer_name,v.supplier_name,v.notes].some(x=>String(x||'').toLowerCase().includes(query));const matchesType=!filters.historyType||v.transaction_type===filters.historyType;const matchesStatus=!filters.historyStatus||(filters.historyStatus==='ACTIVE'?v.status==='ACTIVE':filters.historyStatus==='VOID'?v.status==='VOID':v.payment_status===filters.historyStatus);return matchesSearch&&matchesType&&matchesStatus}))
-const monthlyReportTransactions = computed(()=>data.transactions.filter((v:any)=>{const date=new Date(v.transaction_date);return v.transaction_type==='SALE'&&v.status==='ACTIVE'&&date.getFullYear()===dashboardYear.value&&date.getMonth()+1===dashboardMonth.value}))
+const jakartaYearMonth=(value:string)=>{const parts=new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'numeric',timeZone:'Asia/Jakarta'}).formatToParts(new Date(value));return {year:Number(parts.find(v=>v.type==='year')?.value),month:Number(parts.find(v=>v.type==='month')?.value)}}
+const monthlyReportTransactions = computed(()=>data.transactions.filter((v:any)=>{const date=jakartaYearMonth(v.transaction_date);return v.transaction_type==='SALE'&&v.status==='ACTIVE'&&date.year===dashboardYear.value&&date.month===dashboardMonth.value}))
 const monthlyReportTotal = computed(()=>monthlyReportTransactions.value.reduce((sum:number,v:any)=>sum+Number(v.grand_total||0),0))
 const dashboardPeriods = computed(()=>[
   {label:'Hari Ini',value:data.dashboard.today||{}},
@@ -66,6 +67,8 @@ const dashboardPeriods = computed(()=>[
   {label:`${months[dashboardMonth.value-1]} ${dashboardYear.value}`,value:data.dashboard.selected_month||{}},
   {label:`Tahun ${dashboardYear.value}`,value:data.dashboard.selected_year||{}},
 ])
+const dailyTotals = computed(()=>(data.dashboard.daily||[]).reduce((sum:any,row:any)=>({income:sum.income+Number(row.income||0),expense:sum.expense+Number(row.expense||0),debt:sum.debt+Number(row.debt||0),net_income:sum.net_income+Number(row.net_income||0)}),{income:0,expense:0,debt:0,net_income:0}))
+const jakartaDateTime = (value:string) => new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Jakarta'}).format(new Date(value))
 
 async function load() {
   loading.value=true; error.value=''
@@ -171,6 +174,18 @@ async function importData(kind:'items'|'customers'|'suppliers',event:Event){
 }
 async function printDocument(mode:'monthly'|'receipt'){printMode.value=mode;await nextTick();window.print();printMode.value=null}
 function printMonthlyReport(){printDocument('monthly')}
+async function exportMonthlyReport(){
+  const prompt=await Swal.fire({title:'Export laporan bulanan',input:'textarea',inputLabel:'Catatan (opsional)',inputPlaceholder:'Tambahkan catatan untuk sheet laporan…',showCancelButton:true,confirmButtonText:'Export Excel',cancelButtonText:'Batal',confirmButtonColor:'#1d6b43'});if(!prompt.isConfirmed)return
+  const transactionRows=(values:any[])=>values.map(v=>[v.invoice_no,jakartaDateTime(v.transaction_date),v.customer_name||v.supplier_name||'',v.payment_method_name||'',v.payment_status,v.status,v.grand_total,v.paid_amount,v.notes||'',v.items.map((x:any)=>`${x.item_name} (${x.quantity} x ${x.unit_price})`).join('; ')])
+  const sheets:any[]=[
+    {name:'Ringkasan Bulanan',columns:['Metrik','Nilai'],rows:[['Periode',`${months[dashboardMonth.value-1]} ${dashboardYear.value}`],['Total pemasukan',dailyTotals.value.income],['Total pengeluaran',dailyTotals.value.expense],['Piutang dibuat',dailyTotals.value.debt],['Pendapatan bersih',dailyTotals.value.net_income],['Jumlah transaksi penjualan',monthlyReportTransactions.value.length]]},
+    {name:'Penjualan Harian',columns:['Tanggal','Pemasukan','Pengeluaran','Piutang','Pendapatan Bersih'],rows:(data.dashboard.daily||[]).map((v:any)=>[v.date,v.income,v.expense,v.debt,v.net_income]).concat([['TOTAL',dailyTotals.value.income,dailyTotals.value.expense,dailyTotals.value.debt,dailyTotals.value.net_income]])},
+    {name:'Riwayat Penjualan',columns:['Invoice','Tanggal WIB','Pelanggan','Metode','Pembayaran','Status','Total','Dibayar','Catatan','Item'],rows:transactionRows(data.transactions.filter((v:any)=>v.transaction_type==='SALE'))},
+    {name:'Riwayat Pembelian',columns:['Invoice','Tanggal WIB','Supplier','Metode','Pembayaran','Status','Total','Dibayar','Catatan','Item'],rows:transactionRows(data.transactions.filter((v:any)=>v.transaction_type==='PURCHASE'))},
+    {name:'Piutang',columns:['Invoice','Pelanggan','Nilai Awal','Sisa','Status','Tanggal WIB'],rows:data.debts.map((v:any)=>[v.invoice_no,v.customer_name,v.original_amount,v.remaining_amount,v.status,jakartaDateTime(v.created_at)])},
+  ];if(String(prompt.value||'').trim())sheets.push({name:'Catatan',columns:['Catatan','Dibuat pada'],rows:[[String(prompt.value).trim(),jakartaDateTime(new Date().toISOString())]]})
+  await downloadWorkbook(`laporan-${dashboardYear.value}-${String(dashboardMonth.value).padStart(2,'0')}.xlsx`,sheets)
+}
 function printReceipt(transaction:any){selectedReceipt.value=transaction;printDocument('receipt')}
 onMounted(async()=>{try{if(api.token.value){currentUser.value=await api.me();await load()}}catch{api.token.value=null}finally{authReady.value=true}})
 </script>
@@ -185,10 +200,11 @@ onMounted(async()=>{try{if(api.token.value){currentUser.value=await api.me();awa
 
       <section v-if="active==='users'" class="panel"><div class="page-heading"><div><h2>Pengguna</h2><p>Kelola akun dan hak akses aplikasi.</p></div><button class="primary" @click="openUser()">+ Tambah Pengguna</button></div><div class="table-wrap"><table><thead><tr><th>Nama</th><th>Email</th><th>Role</th><th>Status</th><th>Aksi</th></tr></thead><tbody><tr v-for="user in data.users" :key="user.id"><td><b>{{user.name}}</b><small v-if="String(user.id)===String(currentUser.id)"> · akun Anda</small></td><td>{{user.email}}</td><td><span class="role-badge">{{user.role}}</span></td><td>{{user.active?'Aktif':'Nonaktif'}}</td><td class="table-actions"><button class="soft" @click="openUser(user)">Ubah</button><button class="danger" :disabled="String(user.id)===String(currentUser.id)" @click="removeUser(user)">Hapus</button></td></tr></tbody></table></div></section>
       <template v-else-if="active==='dashboard'">
-        <section class="panel dashboard-toolbar"><div><strong>Periode Laporan</strong><small>Ringkasan bulan dan tahun mengikuti pilihan ini.</small></div><select v-model.number="dashboardMonth"><option v-for="(month,i) in months" :value="i+1">{{month}}</option></select><select v-model.number="dashboardYear"><option v-for="year in years" :value="year">{{year}}</option></select><button class="primary" @click="printMonthlyReport">Cetak Laporan Bulanan</button></section>
+        <section class="panel dashboard-toolbar"><div><strong>Periode Laporan</strong><small>Ringkasan bulan dan tahun mengikuti pilihan ini.</small></div><select v-model.number="dashboardMonth"><option v-for="(month,i) in months" :value="i+1">{{month}}</option></select><select v-model.number="dashboardYear"><option v-for="year in years" :value="year">{{year}}</option></select><button class="primary" @click="exportMonthlyReport">Export Laporan Excel</button></section>
         <section class="period-stats"><article v-for="period in dashboardPeriods"><div><small>{{period.label}}</small><b>Pemasukan</b><strong class="income">{{money(period.value.income)}}</strong></div><div><b>Pengeluaran</b><strong class="expense">{{money(period.value.expense)}}</strong></div><div><b>Piutang Dibuat</b><strong>{{money(period.value.debt)}}</strong></div></article></section>
         <section class="operational-stats"><span>Piutang terbuka <b>{{money(data.dashboard.open_debt)}}</b></span><span>Stok menipis <b>{{data.dashboard.low_stock_items||0}} barang</b></span><span>Total barang <b>{{data.dashboard.total_items||0}}</b></span><span>Pelanggan <b>{{data.dashboard.total_customers||0}}</b></span></section>
         <section class="panel chart-panel"><div class="section-title"><div><h2>Grafik Penjualan {{dashboardYear}}</h2><small>Total nilai transaksi penjualan per bulan</small></div></div><div class="chart"><div v-for="(value,i) in data.dashboard.monthly_sales||[]" class="bar-column"><strong>{{value?money(value):'Rp0'}}</strong><div class="bar-track"><span :style="{height:`${Math.max((value/maxSales)*100,value?4:0)}%`}"></span></div><small>{{months[i]}}</small></div></div></section>
+        <section class="panel daily-report"><div class="section-title"><div><h2>Rekap Harian {{months[dashboardMonth-1]}} {{dashboardYear}}</h2><small>Perhitungan tanggal menggunakan zona waktu Asia/Jakarta (UTC+7).</small></div></div><div class="table-wrap"><table><thead><tr><th>Tanggal</th><th>Total Pemasukan</th><th>Total Pengeluaran</th><th>Total Piutang</th><th>Total Pendapatan</th></tr></thead><tbody><tr v-for="row in data.dashboard.daily||[]" :key="row.date"><td>{{new Date(`${row.date}T00:00:00+07:00`).toLocaleDateString(`id-ID`,{weekday:`long`,day:`2-digit`,month:`short`,timeZone:`Asia/Jakarta`})}}</td><td>{{money(row.income)}}</td><td>{{money(row.expense)}}</td><td>{{money(row.debt)}}</td><td :class="row.net_income<0?`expense`:`income`">{{money(row.net_income)}}</td></tr></tbody><tfoot><tr><th>TOTAL</th><th>{{money(dailyTotals.income)}}</th><th>{{money(dailyTotals.expense)}}</th><th>{{money(dailyTotals.debt)}}</th><th>{{money(dailyTotals.net_income)}}</th></tr></tfoot></table></div></section>
         <section class="print-report" :class="{'print-target':printMode==='monthly'}"><h1>Laporan Penjualan Bulanan</h1><p>Periode: {{months[dashboardMonth-1]}} {{dashboardYear}}</p><table><thead><tr><th>Tanggal</th><th>Invoice</th><th>Pelanggan</th><th>Total</th></tr></thead><tbody><tr v-for="v in monthlyReportTransactions"><td>{{new Date(v.transaction_date).toLocaleString('id-ID')}}</td><td>{{v.invoice_no}}</td><td>{{v.customer_name||'Umum'}}</td><td>{{money(v.grand_total)}}</td></tr><tr v-if="!monthlyReportTransactions.length"><td colspan="4">Tidak ada transaksi penjualan.</td></tr></tbody><tfoot><tr><th colspan="3">Total Penjualan</th><th>{{money(monthlyReportTotal)}}</th></tr></tfoot></table></section>
       </template>
 

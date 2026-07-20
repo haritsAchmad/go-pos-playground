@@ -13,3 +13,4 @@
 .login-mark{display:grid;place-items:center;width:50px;height:50px;border-radius:14px;background:#e7bd54;color:#163c2a;font-size:1.5rem;font-weight:900}
 .user-actions{display:flex;align-items:center;gap:10px}.user-actions span{display:grid;text-align:right;font-size:.8rem}.user-actions small{text-transform:capitalize;color:#738078}
 .role-badge{display:inline-block;padding:4px 9px;border-radius:99px;background:#e6f0e9;color:#225f3e;font-size:.72rem;font-weight:800;text-transform:capitalize}.user-modal{width:min(700px,100%)}.check-label{display:flex;align-items:center;align-self:end;gap:8px;padding:10px 0}.check-label input{width:auto}.table-actions button:disabled{cursor:not-allowed;opacity:.45}
+.daily-report .section-title{margin-bottom:14px}.daily-report tfoot{background:#edf4ef}.daily-report tfoot th{color:#183e2a;font-size:.78rem}.daily-report td.income{color:#17633b;font-weight:750}.daily-report td.expense{color:#a33228;font-weight:750}

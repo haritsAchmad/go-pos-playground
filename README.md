@@ -11,6 +11,8 @@ Aplikasi point of sale dan operasional koperasi dengan REST API Go, PostgreSQL, 
 - Pembelian/penerimaan barang dengan penambahan stok atomik
 - Histori transaksi, pembatalan, piutang, dan pembayaran piutang
 - Import/export Excel dan laporan PDF
+- Laporan Excel multi-sheet berisi ringkasan bulanan, rekap harian, histori transaksi, piutang, dan catatan opsional
+- Rekap dashboard per hari berbasis zona waktu Asia/Jakarta (UTC+7)
 - Login JWT dengan password bcrypt
 - Otorisasi berbasis role: `admin`, `cashier`, dan `viewer`
 - CRUD pengguna khusus admin
@@ -166,6 +168,31 @@ go test ./...
 Set-Location ../frontend
 npm.cmd run build
 ```
+
+## Seed data demo
+
+Seed generator membuat supplier, pelanggan, barang, transaksi pembelian, transaksi penjualan, stok, dan piutang demo. Generator tidak dijalankan otomatis saat API startup.
+
+```powershell
+Set-Location backend
+go run ./cmd/seed
+```
+
+Jumlah data dan rentang transaksi dapat diatur:
+
+```powershell
+go run ./cmd/seed `
+  -suppliers 8 `
+  -customers 30 `
+  -items 20 `
+  -purchases 60 `
+  -sales 150 `
+  -months 6 `
+  -debt-rate 0.20 `
+  -seed 20260720
+```
+
+`-debt-rate 0.20` membuat sekitar 20% penjualan menjadi piutang. Nilai `-seed` membuat hasil acak dapat direproduksi. Invoice dan kode seed menggunakan prefix `SEED-`; menjalankan ulang dengan seed yang sama tidak menduplikasi invoice.
 
 ## Roadmap
 

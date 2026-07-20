@@ -589,22 +589,22 @@ func (r *CooperativeRepository) Dashboard(ctx context.Context, year, month int) 
 	v.Year = year
 	v.Month = month
 	v.MonthlySales = make([]int64, 12)
-	err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((SELECT SUM(grand_total) FROM %s.transactions WHERE transaction_type='SALE' AND status='ACTIVE' AND transaction_date::date=CURRENT_DATE),0),COALESCE((SELECT SUM(grand_total) FROM %s.transactions WHERE transaction_type='PURCHASE' AND status='ACTIVE' AND transaction_date::date=CURRENT_DATE),0),COALESCE((SELECT SUM(remaining_amount) FROM %s.debts WHERE status='OPEN'),0),(SELECT COUNT(*) FROM %s.items WHERE deleted_at IS NULL AND stock<=5),(SELECT COUNT(*) FROM %s.items WHERE deleted_at IS NULL),(SELECT COUNT(*) FROM %s.customers WHERE deleted_at IS NULL),(SELECT COUNT(*) FROM %s.suppliers WHERE deleted_at IS NULL)`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)).Scan(&v.TodaySales, &v.TodayPurchases, &v.OpenDebt, &v.LowStockItems, &v.TotalItems, &v.TotalCustomers, &v.TotalSuppliers)
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((SELECT SUM(grand_total) FROM %s.transactions WHERE transaction_type='SALE' AND status='ACTIVE' AND (transaction_date AT TIME ZONE 'Asia/Jakarta')::date=(NOW() AT TIME ZONE 'Asia/Jakarta')::date),0),COALESCE((SELECT SUM(grand_total) FROM %s.transactions WHERE transaction_type='PURCHASE' AND status='ACTIVE' AND (transaction_date AT TIME ZONE 'Asia/Jakarta')::date=(NOW() AT TIME ZONE 'Asia/Jakarta')::date),0),COALESCE((SELECT SUM(remaining_amount) FROM %s.debts WHERE status='OPEN'),0),(SELECT COUNT(*) FROM %s.items WHERE deleted_at IS NULL AND stock<=5),(SELECT COUNT(*) FROM %s.items WHERE deleted_at IS NULL),(SELECT COUNT(*) FROM %s.customers WHERE deleted_at IS NULL),(SELECT COUNT(*) FROM %s.suppliers WHERE deleted_at IS NULL)`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)).Scan(&v.TodaySales, &v.TodayPurchases, &v.OpenDebt, &v.LowStockItems, &v.TotalItems, &v.TotalCustomers, &v.TotalSuppliers)
 	if err != nil {
 		return v, err
 	}
 	periodRows, err := r.db.Query(ctx, fmt.Sprintf(`
 		WITH periods(label,start_at,end_at) AS (
 			VALUES
-			('today',CURRENT_DATE::timestamp,(CURRENT_DATE+1)::timestamp),
-			('yesterday',(CURRENT_DATE-1)::timestamp,CURRENT_DATE::timestamp),
+			('today',(NOW() AT TIME ZONE 'Asia/Jakarta')::date::timestamp,((NOW() AT TIME ZONE 'Asia/Jakarta')::date+1)::timestamp),
+			('yesterday',((NOW() AT TIME ZONE 'Asia/Jakarta')::date-1)::timestamp,(NOW() AT TIME ZONE 'Asia/Jakarta')::date::timestamp),
 			('month',make_date($1,$2,1)::timestamp,(make_date($1,$2,1)+INTERVAL '1 month')::timestamp),
 			('year',make_date($1,1,1)::timestamp,make_date($1+1,1,1)::timestamp)
 		)
 		SELECT p.label,
-			COALESCE((SELECT SUM(t.grand_total) FROM %s.transactions t WHERE t.status='ACTIVE' AND t.transaction_type='SALE' AND t.transaction_date>=p.start_at AND t.transaction_date<p.end_at),0),
-			COALESCE((SELECT SUM(t.grand_total) FROM %s.transactions t WHERE t.status='ACTIVE' AND t.transaction_type='PURCHASE' AND t.transaction_date>=p.start_at AND t.transaction_date<p.end_at),0),
-			COALESCE((SELECT SUM(d.remaining_amount) FROM %s.debts d WHERE d.created_at>=p.start_at AND d.created_at<p.end_at),0)
+			COALESCE((SELECT SUM(t.grand_total) FROM %s.transactions t WHERE t.status='ACTIVE' AND t.transaction_type='SALE' AND (t.transaction_date AT TIME ZONE 'Asia/Jakarta')>=p.start_at AND (t.transaction_date AT TIME ZONE 'Asia/Jakarta')<p.end_at),0),
+			COALESCE((SELECT SUM(t.grand_total) FROM %s.transactions t WHERE t.status='ACTIVE' AND t.transaction_type='PURCHASE' AND (t.transaction_date AT TIME ZONE 'Asia/Jakarta')>=p.start_at AND (t.transaction_date AT TIME ZONE 'Asia/Jakarta')<p.end_at),0),
+			COALESCE((SELECT SUM(d.original_amount) FROM %s.debts d WHERE (d.created_at AT TIME ZONE 'Asia/Jakarta')>=p.start_at AND (d.created_at AT TIME ZONE 'Asia/Jakarta')<p.end_at),0)
 		FROM periods p`, r.schema, r.schema, r.schema), year, month)
 	if err != nil {
 		return v, err
@@ -630,7 +630,7 @@ func (r *CooperativeRepository) Dashboard(ctx context.Context, year, month int) 
 	if err := periodRows.Err(); err != nil {
 		return v, err
 	}
-	rows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT EXTRACT(MONTH FROM transaction_date)::int,SUM(grand_total) FROM %s.transactions WHERE transaction_type='SALE' AND status='ACTIVE' AND EXTRACT(YEAR FROM transaction_date)=$1 GROUP BY 1`, r.schema), year)
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT EXTRACT(MONTH FROM transaction_date AT TIME ZONE 'Asia/Jakarta')::int,SUM(grand_total) FROM %s.transactions WHERE transaction_type='SALE' AND status='ACTIVE' AND EXTRACT(YEAR FROM transaction_date AT TIME ZONE 'Asia/Jakarta')=$1 GROUP BY 1`, r.schema), year)
 	if err != nil {
 		return v, err
 	}
@@ -643,5 +643,21 @@ func (r *CooperativeRepository) Dashboard(ctx context.Context, year, month int) 
 		}
 		v.MonthlySales[month-1] = total
 	}
-	return v, rows.Err()
+	if err := rows.Err(); err != nil {
+		return v, err
+	}
+	dailyRows, err := r.db.Query(ctx, fmt.Sprintf(`WITH days AS (SELECT generate_series(make_date($1,$2,1),(make_date($1,$2,1)+INTERVAL '1 month'-INTERVAL '1 day')::date,INTERVAL '1 day')::date AS day), totals AS (SELECT (transaction_date AT TIME ZONE 'Asia/Jakarta')::date day,SUM(grand_total) FILTER(WHERE transaction_type='SALE') income,SUM(grand_total) FILTER(WHERE transaction_type='PURCHASE') expense FROM %s.transactions WHERE status='ACTIVE' AND (transaction_date AT TIME ZONE 'Asia/Jakarta')::date>=make_date($1,$2,1) AND (transaction_date AT TIME ZONE 'Asia/Jakarta')::date<(make_date($1,$2,1)+INTERVAL '1 month')::date GROUP BY 1), debt_totals AS (SELECT (created_at AT TIME ZONE 'Asia/Jakarta')::date day,SUM(original_amount) debt FROM %s.debts WHERE (created_at AT TIME ZONE 'Asia/Jakarta')::date>=make_date($1,$2,1) AND (created_at AT TIME ZONE 'Asia/Jakarta')::date<(make_date($1,$2,1)+INTERVAL '1 month')::date GROUP BY 1) SELECT TO_CHAR(d.day,'YYYY-MM-DD'),COALESCE(t.income,0),COALESCE(t.expense,0),COALESCE(dt.debt,0),COALESCE(t.income,0)-COALESCE(t.expense,0) FROM days d LEFT JOIN totals t ON t.day=d.day LEFT JOIN debt_totals dt ON dt.day=d.day ORDER BY d.day`, r.schema, r.schema), year, month)
+	if err != nil {
+		return v, err
+	}
+	defer dailyRows.Close()
+	v.Daily = make([]entity.DailySummary, 0, 31)
+	for dailyRows.Next() {
+		var d entity.DailySummary
+		if err := dailyRows.Scan(&d.Date, &d.Income, &d.Expense, &d.Debt, &d.NetIncome); err != nil {
+			return v, err
+		}
+		v.Daily = append(v.Daily, d)
+	}
+	return v, dailyRows.Err()
 }

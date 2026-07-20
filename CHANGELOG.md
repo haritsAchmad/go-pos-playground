@@ -6,6 +6,10 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 ### Added
 
+- Export laporan bulanan Excel multi-sheet untuk ringkasan, penjualan harian, histori penjualan, histori pembelian, piutang, dan catatan opsional.
+- Tabel rekap harian dashboard lengkap dengan total bulanan.
+- Agregasi laporan berbasis zona waktu Asia/Jakarta (UTC+7).
+- Command seed generator configurable untuk supplier, pelanggan, barang, pembelian, penjualan, stok, dan piutang.
 - Autentikasi JWT HS256 dan endpoint profil pengguna.
 - Password hashing menggunakan bcrypt.
 - Otorisasi berbasis role `admin`, `cashier`, dan `viewer`.
