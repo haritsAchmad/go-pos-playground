@@ -12,7 +12,7 @@ Aplikasi point of sale (POS) dan operasional koperasi hasil adaptasi modul SMS51
 - Kasir/penjualan dengan pengurangan stok atomik
 - Pembelian/penerimaan barang dengan penambahan stok atomik
 - Histori transaksi, piutang, dan pembayaran piutang
-- Tidak membawa modul saldo maupun autentikasi dari aplikasi lama
+- Autentikasi JWT dan otorisasi berbasis role (`admin`, `cashier`, `viewer`)
 
 ## Menjalankan aplikasi
 
@@ -57,7 +57,7 @@ Frontend tersedia di `http://localhost:3000` dan meneruskan request `/api` ke ba
 - [ ] Sorting
 - [ ] Transaction
 - [ ] Middleware
-- [ ] Authentication (JWT)
+- [x] Authentication (JWT)
 - [ ] Unit Test
 - [ ] Docker
 - [ ] Redis
