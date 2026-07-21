@@ -6,6 +6,9 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 ### Added
 
+- Sliding session ringan dengan endpoint `POST /auth/refresh` untuk memperpanjang JWT pengguna aktif.
+- Pencatatan aktivitas frontend tanpa polling serta deduplikasi refresh untuk request API paralel.
+- Routing Nuxt per halaman, halaman login terpisah, dan middleware navigasi berbasis autentikasi.
 - Export laporan bulanan Excel multi-sheet untuk ringkasan, penjualan harian, histori penjualan, histori pembelian, piutang, dan catatan opsional.
 - Tabel rekap harian dashboard lengkap dengan total bulanan.
 - Agregasi laporan berbasis zona waktu Asia/Jakarta (UTC+7).
@@ -22,6 +25,7 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 ### Changed
 
+- Contoh masa berlaku access token diubah menjadi 15 menit; frontend memperbarui token pada lima menit terakhir saat ada aktivitas.
 - Seluruh endpoint operasional kini membutuhkan autentikasi, kecuali `/health` dan `/auth/login`.
 - Kasir dapat melakukan CRUD barang, pelanggan, dan supplier.
 - Kasir dapat membuat merek baru dari form barang tanpa memperoleh akses penuh ke master data.
@@ -36,6 +40,8 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 ### Security
 
+- Token yang sudah kedaluwarsa tidak dapat digunakan untuk menghidupkan kembali sliding session.
+- Respons `401` membersihkan token frontend dan mengarahkan pengguna kembali ke halaman login.
 - Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri.
 - Token milik pengguna yang dinonaktifkan atau dihapus langsung ditolak.
 - Perubahan role langsung berlaku tanpa menunggu access token kedaluwarsa.

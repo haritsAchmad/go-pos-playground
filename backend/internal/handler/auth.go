@@ -28,6 +28,31 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	response.Success(w,http.StatusOK,"login successful",map[string]any{"access_token":token,"token_type":"Bearer","expires_at":expiresAt,"user":u})
 }
 
+// Refresh extends an active session by issuing a fresh JWT for the authenticated user.
+// The authentication middleware has already rejected expired, deleted, or inactive accounts.
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.ClaimsFromContext(r.Context())
+	if !ok {
+		response.Error(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	userID, err := strconv.ParseInt(claims.Subject, 10, 64)
+	if err != nil {
+		response.Error(w, http.StatusUnauthorized, "invalid access token")
+		return
+	}
+	token, expiresAt, err := h.tokens.Issue(userID, claims.Name, claims.Email, claims.Role)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to refresh access token")
+		return
+	}
+	response.Success(w, http.StatusOK, "access token refreshed", map[string]any{
+		"access_token": token,
+		"token_type":   "Bearer",
+		"expires_at":   expiresAt,
+	})
+}
+
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	c, ok := middleware.ClaimsFromContext(r.Context()); if !ok { response.Error(w,http.StatusUnauthorized,"authentication required"); return }
 	response.Success(w,http.StatusOK,"profile fetched successfully",map[string]any{"id":c.Subject,"name":c.Name,"email":c.Email,"role":c.Role})

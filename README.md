@@ -49,7 +49,7 @@ DB_SSLMODE=disable
 
 JWT_SECRET=ganti-dengan-random-secret-minimal-32-karakter
 JWT_ISSUER=go-pos-playground
-JWT_EXPIRY_MINUTES=480
+JWT_EXPIRY_MINUTES=15
 
 INITIAL_ADMIN_NAME=Administrator
 INITIAL_ADMIN_EMAIL=admin@example.com
@@ -98,6 +98,18 @@ Endpoint selain health check dan login membutuhkan header berikut:
 Authorization: Bearer <access_token>
 ```
 
+### Sliding session
+
+Access token berlaku sesuai `JWT_EXPIRY_MINUTES`. Frontend menggunakan sliding session ringan untuk pengguna aktif:
+
+- Aktivitas seperti perpindahan halaman, pemuatan data, dan operasi CRUD dicatat di browser tanpa request background tambahan.
+- Ketika request API dilakukan dan sisa umur token maksimal lima menit, frontend memanggil `POST /auth/refresh` satu kali lalu menggunakan token baru.
+- Request paralel berbagi proses refresh yang sama agar tidak menerbitkan banyak token sekaligus.
+- Token yang sudah kedaluwarsa tidak dapat diperbarui. Pengguna yang idle sampai batas waktu akan diarahkan kembali ke `/login`.
+- Mengubah `JWT_EXPIRY_MINUTES` memerlukan restart backend dan berlaku untuk token yang diterbitkan setelah login atau refresh berikutnya.
+
+Implementasi ini tidak menggunakan refresh token jangka panjang atau penyimpanan session server-side. Karena itu, logout tidak mencabut JWT yang sudah disalin ke tempat lain; token tersebut tetap valid sampai waktu kedaluwarsanya.
+
 ### Role dan akses
 
 | Fitur | Admin | Cashier | Viewer |
@@ -119,6 +131,7 @@ Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri. Sta
 |---|---|---|
 | `GET` | `/health` | Health check publik |
 | `POST` | `/auth/login` | Login |
+| `POST` | `/auth/refresh` | Perpanjang access token yang masih aktif |
 | `GET` | `/auth/me` | Profil pengguna aktif |
 | `GET, POST` | `/users` | Daftar dan tambah pengguna |
 | `PUT, DELETE` | `/users/{id}` | Ubah dan hapus pengguna |
