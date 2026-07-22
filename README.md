@@ -166,11 +166,15 @@ Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri. Sta
 |       |-- repository/         # database access
 |       `-- router/             # routes dan role policy
 |-- frontend/                   # Nuxt operational console
+|   |-- components/             # layout dan tampilan console
+|   `-- composables/            # state dan operasi per domain
 |-- docs/
 |-- migrations/
 |-- CHANGELOG.md
 `-- README.md
 ```
+
+Frontend memisahkan pemuatan data dan operasi berdasarkan domain dashboard, barang, pelanggan, supplier, master data, transaksi, piutang, dan pengguna. Setiap halaman hanya memuat data yang dibutuhkan oleh route aktif, sedangkan operasi CRUD hanya memuat ulang domain yang terdampak.
 
 ## Testing dan build
 

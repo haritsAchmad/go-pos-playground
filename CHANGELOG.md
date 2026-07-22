@@ -25,6 +25,9 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 ### Changed
 
+- Pemuatan data frontend dipisahkan per domain sehingga route aktif dan operasi CRUD hanya memuat data yang diperlukan tanpa menambah jumlah request API.
+- State dan operasi dashboard, barang, pelanggan, supplier, master data, transaksi, piutang, dan pengguna diekstrak dari `KoperasiConsole.vue` ke composable masing-masing.
+- Perataan kolom tabel dan input harga barang diperbaiki agar tampilan serta validasi form lebih konsisten.
 - Contoh masa berlaku access token diubah menjadi 15 menit; frontend memperbarui token pada lima menit terakhir saat ada aktivitas.
 - Seluruh endpoint operasional kini membutuhkan autentikasi, kecuali `/health` dan `/auth/login`.
 - Kasir dapat melakukan CRUD barang, pelanggan, dan supplier.
@@ -35,6 +38,7 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 ### Fixed
 
+- Mempertahankan data transaksi yang akan diubah ketika berpindah dari halaman histori ke halaman kasir atau pembelian.
 - Memperbaiki pattern kode/SKU agar valid pada browser yang menggunakan regular expression mode `v`.
 - Menyamakan dokumentasi port backend dengan proxy frontend.
 
