@@ -220,4 +220,12 @@ go run ./cmd/seed `
 - Docker dan deployment configuration
 - Redis untuk caching atau session support
 
+## AI-assisted development
+
+Project ini dirancang, diarahkan, diuji, dan direview oleh Harits Achmad Fauzan. ChatGPT dan Codex digunakan sebagai alat bantu untuk brainstorming, diskusi arsitektur, review kode, refactoring, dan implementasi. Keputusan akhir, validasi fitur, smoke testing, dan persetujuan perubahan tetap dilakukan oleh pemilik project.
+
+## License
+
+Copyright (c) 2026 Harits Achmad Fauzan. Project ini dilisensikan menggunakan [MIT License](LICENSE).
+
 Riwayat perubahan tersedia di [CHANGELOG.md](CHANGELOG.md).
