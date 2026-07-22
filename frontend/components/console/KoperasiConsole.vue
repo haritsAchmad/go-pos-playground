@@ -22,9 +22,6 @@ const submitting = ref(false)
 const error = ref('')
 const notice = ref('')
 const data = reactive<any>({ dashboard:{},items:[],customers:[],suppliers:[],categories:[],brands:[],units:[],payment_methods:[],transactions:[],debts:[],users:[] })
-const userForm = reactive<any>({ name:'',email:'',password:'',role:'cashier',active:true })
-const userModal = ref(false)
-const editingUser = ref<number|null>(null)
 const editing = reactive<any>({ item:null, customer:null, supplier:null, master:null, transaction:null })
 const printMode = ref<null|'monthly'|'receipt'>(null)
 const modal = ref<null|'item'|'customer'|'supplier'>(null)
@@ -37,10 +34,10 @@ const { transactionForm,transactionContext,expandedTransaction,selectedReceipt,l
 const { debtPayments,loadDebts,payDebt } = useDebts({api,data,submit,reloadDashboard:()=>loadDashboard(),reloadTransactions:()=>loadTransactions()})
 const { customerForm,customerImport,filteredCustomers,loadCustomers,saveCustomer,openCustomer,editCustomer,closeCustomer,removeCustomer } = useCustomers({api,data,transactionForm,filters,editing,modal,submit})
 const { supplierForm,supplierImport,filteredSuppliers,loadSuppliers,saveSupplier,openSupplier,editSupplier,closeSupplier,removeSupplier } = useSuppliers({api,data,filters,editing,modal,submit})
+const { userForm,userModal,editingUser,loadUsers,openUser,closeUser,saveUser,removeUser } = useUsers({api,data,currentUser,submit})
 
 const jakartaDateTime = (value:string) => new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Jakarta'}).format(new Date(value))
 
-async function loadUsers(){if(currentUser.value?.role==='admin')data.users=await api.users()}
 async function runLoaders(loaders:Array<()=>Promise<void>>){loading.value=true;error.value='';try{await Promise.all(loaders.map(loader=>loader()))}catch(e:any){error.value=e?.data?.message||e.message||'Gagal memuat data'}finally{loading.value=false}}
 async function loadActiveRoute(){
   const loaders:Record<string,Array<()=>Promise<void>>>={
@@ -65,10 +62,6 @@ async function exportData(kind:'items'|'customers'|'suppliers'|'transactions'){
 }
 async function login(){loginError.value='';submitting.value=true;try{const result=await api.login(loginForm.email,loginForm.password);api.token.value=result.access_token;currentUser.value=result.user;loginForm.password='';active.value='dashboard';await runLoaders([loadDashboard,loadTransactions,loadDebts]);await navigateTo('/')}catch(e:any){loginError.value=e?.data?.message||'Login gagal'}finally{submitting.value=false}}
 async function logout(){api.token.value=null;currentUser.value=null;Object.assign(data,{dashboard:{},items:[],customers:[],suppliers:[],categories:[],brands:[],units:[],payment_methods:[],transactions:[],debts:[]});await navigateTo('/login')}
-function openUser(user:any=null){editingUser.value=user?.id||null;Object.assign(userForm,user?{name:user.name,email:user.email,password:'',role:user.role,active:user.active}:{name:'',email:'',password:'',role:'cashier',active:true});userModal.value=true}
-function closeUser(){editingUser.value=null;userModal.value=false;Object.assign(userForm,{name:'',email:'',password:'',role:'cashier',active:true})}
-async function saveUser(){const id=editingUser.value;const body={...userForm};if(!body.password)delete body.password;if(await submit(()=>id?api.updateUser(id,body):api.createUser(body),`Pengguna berhasil ${id?'diubah':'ditambahkan'}`,[loadUsers]))closeUser()}
-async function removeUser(user:any){if(String(user.id)===String(currentUser.value.id)){await Swal.fire({icon:'warning',title:'Tidak dapat menghapus akun sendiri',confirmButtonColor:'#1d6b43'});return}const result=await Swal.fire({icon:'warning',title:`Hapus ${user.name}?`,text:'Pengguna tidak dapat login lagi.',showCancelButton:true,confirmButtonText:'Hapus',cancelButtonText:'Batal',confirmButtonColor:'#b8322a'});if(result.isConfirmed)await submit(()=>api.deleteUser(user.id),'Pengguna berhasil dihapus',[loadUsers],false)}
 function sameText(a:any,b:any){return String(a??'').trim()===String(b??'').trim()}
 function sameCode(a:any,b:any){return String(a??'').trim().toLowerCase()===String(b??'').trim().toLowerCase()}
 async function importData(kind:'items'|'customers'|'suppliers',event:Event){
