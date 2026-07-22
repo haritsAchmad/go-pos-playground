@@ -3,12 +3,10 @@ import type { Ref } from 'vue'
 
 type Submit=(action:()=>Promise<any>,message:string,reload:Array<()=>Promise<void>>,confirmation?:string|false)=>Promise<boolean>
 
-export function useItems(options:{api:any,data:any,active:Ref<string>,transactionForm:any,filters:any,editing:any,modal:Ref<null|'item'|'customer'|'supplier'>,submit:Submit,findOrCreateMaster:(table:'categories'|'brands'|'units',values:any[],name:string)=>Promise<any>}){
-  const {api,data,active,transactionForm,filters,editing,modal,submit,findOrCreateMaster}=options
+export function useItems(options:{api:any,data:any,filters:any,editing:any,modal:Ref<null|'item'|'customer'|'supplier'>,submit:Submit,findOrCreateMaster:(table:'categories'|'brands'|'units',values:any[],name:string)=>Promise<any>}){
+  const {api,data,filters,editing,modal,submit,findOrCreateMaster}=options
   const itemForm=reactive<any>({sku:'',name:'',description:'',supplier_id:null,category_id:null,brand_id:null,brand_name:'',unit_id:null,stock:0,cost:0,price:0})
   const itemImport=ref<HTMLInputElement|null>(null)
-  const itemById=(id:number)=>data.items.find((v:any)=>v.id===Number(id))
-  const transactionItems=computed(()=>active.value==='purchase'?data.items.filter((v:any)=>Number(v.supplier_id)===Number(transactionForm.supplier_id)):data.items)
   const filteredItems=computed(()=>data.items.filter((v:any)=>{
     const query=filters.itemSearch.toLowerCase();const matchesQuery=!query||[v.sku,v.name,v.category_name,v.brand_name].some(x=>String(x||'').toLowerCase().includes(query));
     const matchesCategory=!filters.category||String(v.category_id)===filters.category;
@@ -23,7 +21,6 @@ export function useItems(options:{api:any,data:any,active:Ref<string>,transactio
   function editItem(v:any){openItem(v)}
   function cancelItem(close=true){editing.item=null;Object.assign(itemForm,{sku:'',name:'',description:'',supplier_id:null,category_id:null,brand_id:null,brand_name:'',unit_id:null,stock:0,cost:0,price:0});if(close)modal.value=null}
   async function removeItem(v:any){const result=await Swal.fire({icon:'warning',title:`Hapus ${v.name}?`,text:'Data yang sudah dihapus tidak dapat dikembalikan.',showCancelButton:true,confirmButtonText:'Hapus',cancelButtonText:'Batal',confirmButtonColor:'#b8322a'});if(result.isConfirmed)await submit(()=>api.deleteItem(v.id),'Barang berhasil dihapus',[loadItems])}
-  function chooseItem(line:any){const item=itemById(line.item_id);if(item)line.unit_price=active.value==='purchase'?item.cost:item.price}
 
-  return {itemForm,itemImport,transactionItems,filteredItems,loadItems,saveItem,openItem,editItem,cancelItem,removeItem,chooseItem}
+  return {itemForm,itemImport,filteredItems,loadItems,saveItem,openItem,editItem,cancelItem,removeItem}
 }

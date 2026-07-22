@@ -22,33 +22,22 @@ const submitting = ref(false)
 const error = ref('')
 const notice = ref('')
 const data = reactive<any>({ dashboard:{},items:[],customers:[],suppliers:[],categories:[],brands:[],units:[],payment_methods:[],transactions:[],debts:[],users:[] })
-const userForm = reactive<any>({ name:'',email:'',password:'',role:'cashier',active:true })
-const userModal = ref(false)
-const editingUser = ref<number|null>(null)
-const transactionForm = reactive<any>({ customer_id:null,supplier_id:null,payment_method_id:null,paid_amount:0,notes:'',items:[{item_id:null,quantity:1,unit_price:0}] })
-const transactionContext = ref<'sale'|'purchase'>('sale')
 const editing = reactive<any>({ item:null, customer:null, supplier:null, master:null, transaction:null })
-const expandedTransaction = ref<number|null>(null)
-const selectedReceipt = ref<any>(null)
 const printMode = ref<null|'monthly'|'receipt'>(null)
-const debtPayments = reactive<Record<number, number>>({})
 const modal = ref<null|'item'|'customer'|'supplier'>(null)
 const filters = reactive({ itemSearch:'', category:'', stock:'', customerSearch:'', supplierSearch:'', historySearch:'', historyType:'', historyStatus:'' })
+const money = (v:number) => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(v||0)
 const { dashboardYear,dashboardMonth,years,months,maxSales,monthlyReportTransactions,monthlyReportTotal,dashboardPeriods,dailyTotals,loadDashboard } = useDashboard(api,data)
 const { masterForm,loadMasters,openMaster,saveMaster,editMaster,deleteMaster,findOrCreateMaster } = useMasters({api,data,editing,submit,reloadItems:()=>loadItems()})
-const { itemForm,itemImport,transactionItems,filteredItems,loadItems,saveItem,openItem,editItem,cancelItem,removeItem,chooseItem } = useItems({api,data,active,transactionForm,filters,editing,modal,submit,findOrCreateMaster})
+const { itemForm,itemImport,filteredItems,loadItems,saveItem,openItem,editItem,cancelItem,removeItem } = useItems({api,data,filters,editing,modal,submit,findOrCreateMaster})
+const { transactionForm,transactionContext,expandedTransaction,selectedReceipt,lineTotal,changeAmount,transactionItems,filteredTransactions,loadTransactions,voidTransaction,addLine,resetTransaction,editTransaction,saveTransaction,chooseItem,printReceipt } = useTransactions({api,data,active,editing,filters,submit,reloadDashboard:()=>loadDashboard(),reloadItems:()=>loadItems(),reloadDebts:()=>loadDebts(),money,printDocument})
+const { debtPayments,loadDebts,payDebt } = useDebts({api,data,submit,reloadDashboard:()=>loadDashboard(),reloadTransactions:()=>loadTransactions()})
 const { customerForm,customerImport,filteredCustomers,loadCustomers,saveCustomer,openCustomer,editCustomer,closeCustomer,removeCustomer } = useCustomers({api,data,transactionForm,filters,editing,modal,submit})
 const { supplierForm,supplierImport,filteredSuppliers,loadSuppliers,saveSupplier,openSupplier,editSupplier,closeSupplier,removeSupplier } = useSuppliers({api,data,filters,editing,modal,submit})
+const { userForm,userModal,editingUser,loadUsers,openUser,closeUser,saveUser,removeUser } = useUsers({api,data,currentUser,submit})
 
-const money = (v:number) => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(v||0)
-const lineTotal = computed(()=>transactionForm.items.reduce((sum:number,line:any)=>sum+(Number(line.quantity)||0)*(Number(line.unit_price)||0),0))
-const changeAmount = computed(()=>Number(transactionForm.paid_amount||0)-lineTotal.value)
-const filteredTransactions = computed(()=>data.transactions.filter((v:any)=>{const query=filters.historySearch.toLowerCase();const matchesSearch=!query||[v.invoice_no,v.customer_name,v.supplier_name,v.notes].some(x=>String(x||'').toLowerCase().includes(query));const matchesType=!filters.historyType||v.transaction_type===filters.historyType;const matchesStatus=!filters.historyStatus||(filters.historyStatus==='ACTIVE'?v.status==='ACTIVE':filters.historyStatus==='VOID'?v.status==='VOID':v.payment_status===filters.historyStatus);return matchesSearch&&matchesType&&matchesStatus}))
 const jakartaDateTime = (value:string) => new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Jakarta'}).format(new Date(value))
 
-async function loadTransactions(){data.transactions=await api.transactions()}
-async function loadDebts(){data.debts=await api.debts()}
-async function loadUsers(){if(currentUser.value?.role==='admin')data.users=await api.users()}
 async function runLoaders(loaders:Array<()=>Promise<void>>){loading.value=true;error.value='';try{await Promise.all(loaders.map(loader=>loader()))}catch(e:any){error.value=e?.data?.message||e.message||'Gagal memuat data'}finally{loading.value=false}}
 async function loadActiveRoute(){
   const loaders:Record<string,Array<()=>Promise<void>>>={
@@ -60,17 +49,10 @@ async function loadActiveRoute(){
 async function submit(action:()=>Promise<any>, message:string, reload:Array<()=>Promise<void>>, confirmation:string|false=false){if(submitting.value)return false;if(confirmation!==false){const result=await Swal.fire({icon:'question',title:'Konfirmasi',text:confirmation,showCancelButton:true,confirmButtonText:'Ya, simpan',cancelButtonText:'Batal',confirmButtonColor:'#1d6b43'});if(!result.isConfirmed)return false}error.value='';notice.value='';submitting.value=true;try{await action();await runLoaders(reload);await Swal.fire({icon:'success',title:'Berhasil',text:message,confirmButtonColor:'#1d6b43'});return true}catch(e:any){const message=e?.data?.message||e.message||'Gagal menyimpan data';await Swal.fire({icon:'error',title:'Gagal',text:message,confirmButtonColor:'#1d6b43'});return false}finally{submitting.value=false}}
 watch(()=>route.path,async()=>{const next=routeKey();if(next===active.value)return;active.value=next;if(currentUser.value)await loadActiveRoute()})
 watch(active,(next)=>{error.value='';notice.value='';modal.value=null;if((next==='sale'||next==='purchase')&&transactionContext.value!==next){resetTransaction(next);transactionContext.value=next}})
-watch(()=>transactionForm.supplier_id,()=>{if(active.value==='purchase'){transactionForm.items=transactionForm.items.map((line:any)=>transactionItems.value.some((v:any)=>v.id===Number(line.item_id))?line:{item_id:null,quantity:1,unit_price:0})}})
 watch(dashboardYear,()=>runLoaders([loadDashboard]))
 watch(dashboardMonth,()=>runLoaders([loadDashboard]))
 function blockInvalidNumber(event:KeyboardEvent){const target=event.target as HTMLInputElement;if(target?.type==='number'&&['e','E','+','-','.'].includes(event.key))event.preventDefault()}
 function sanitizeNumeric(event:Event){const target=event.target as HTMLInputElement;if(target?.type==='tel')target.value=target.value.replace(/\D/g,'')}
-async function voidTransaction(v:any){const stockEffect=v.transaction_type==='SALE'?'Stok barang penjualan akan dikembalikan.':'Stok dari pembelian akan dikurangi; pembatalan ditolak jika stok sudah terpakai.';const result=await Swal.fire({icon:'warning',title:`Batalkan ${v.invoice_no}?`,text:stockEffect,input:'textarea',inputLabel:'Alasan pembatalan',inputPlaceholder:'Tulis alasan (minimal 5 karakter)',showCancelButton:true,confirmButtonText:'Ya, batalkan',cancelButtonText:'Kembali',confirmButtonColor:'#b8322a',inputValidator:(value)=>!value||value.trim().length<5?'Alasan pembatalan minimal 5 karakter.':undefined});if(!result.isConfirmed)return;await submit(()=>api.voidTransaction(v.id,result.value.trim()),`Transaksi dibatalkan. ${stockEffect}`,[loadDashboard,loadItems,loadTransactions,loadDebts],false)}
-function addLine(){transactionForm.items.push({item_id:null,quantity:1,unit_price:0})}
-function resetTransaction(context: string=active.value){editing.transaction=null;transactionContext.value=context==='purchase'?'purchase':'sale';Object.assign(transactionForm,{customer_id:context==='sale'?data.customers.find((c:any)=>c.code==='UMUM')?.id||null:null,supplier_id:null,payment_method_id:null,paid_amount:0,notes:'',items:[{item_id:null,quantity:1,unit_price:0}]})}
-function editTransaction(v:any){if(v.status!=='ACTIVE')return;const context=v.transaction_type==='SALE'?'sale':'purchase';transactionContext.value=context;editing.transaction=v.id;Object.assign(transactionForm,{customer_id:v.customer_id,supplier_id:v.supplier_id,payment_method_id:v.payment_method_id,paid_amount:v.amount_received,notes:v.notes||'',items:v.items.map((line:any)=>({item_id:line.item_id,quantity:line.quantity,unit_price:line.unit_price}))});navigateTo(context==='sale'?'/kasir':'/pembelian')}
-async function saveTransaction(type:'SALE'|'PURCHASE') {const payload={...transactionForm,transaction_type:type,customer_id:type==='SALE'?Number(transactionForm.customer_id):null,supplier_id:type==='PURCHASE'?Number(transactionForm.supplier_id):null,payment_method_id:transactionForm.payment_method_id?Number(transactionForm.payment_method_id):null,paid_amount:Number(transactionForm.paid_amount),items:transactionForm.items.map((v:any)=>({...v,item_id:Number(v.item_id),quantity:Number(v.quantity),unit_price:Number(v.unit_price)}))};const id=editing.transaction;if(await submit(()=>id?api.updateTransaction(id,payload):api.createTransaction(payload),`${type==='SALE'?'Penjualan':'Pembelian'} berhasil ${id?'diubah':'dicatat'}`,[loadDashboard,loadItems,loadTransactions,loadDebts],`${id?'Simpan perubahan':'Simpan'} ${type==='SALE'?'penjualan':'pembelian'} sebesar ${money(lineTotal.value)}?`))resetTransaction() }
-async function payDebt(v:any){const amount=Number(debtPayments[v.id]||0);if(await submit(()=>api.payDebt(v.id,{amount}),'Pembayaran piutang berhasil dicatat',[loadDashboard,loadTransactions,loadDebts]))debtPayments[v.id]=0}
 async function exportData(kind:'items'|'customers'|'suppliers'|'transactions'){
   const date=new Date().toISOString().slice(0,10)
   if(kind==='items')await downloadExcel(`barang-${date}.xlsx`,['sku','name','description','supplier_code','category','brand','unit','stock','cost','price'],data.items.map((v:any)=>[v.sku,v.name,v.description,data.suppliers.find((s:any)=>s.id===v.supplier_id)?.code||'',v.category_name||'',v.brand_name||'',v.unit_name||'',v.stock,v.cost,v.price]))
@@ -80,10 +62,6 @@ async function exportData(kind:'items'|'customers'|'suppliers'|'transactions'){
 }
 async function login(){loginError.value='';submitting.value=true;try{const result=await api.login(loginForm.email,loginForm.password);api.token.value=result.access_token;currentUser.value=result.user;loginForm.password='';active.value='dashboard';await runLoaders([loadDashboard,loadTransactions,loadDebts]);await navigateTo('/')}catch(e:any){loginError.value=e?.data?.message||'Login gagal'}finally{submitting.value=false}}
 async function logout(){api.token.value=null;currentUser.value=null;Object.assign(data,{dashboard:{},items:[],customers:[],suppliers:[],categories:[],brands:[],units:[],payment_methods:[],transactions:[],debts:[]});await navigateTo('/login')}
-function openUser(user:any=null){editingUser.value=user?.id||null;Object.assign(userForm,user?{name:user.name,email:user.email,password:'',role:user.role,active:user.active}:{name:'',email:'',password:'',role:'cashier',active:true});userModal.value=true}
-function closeUser(){editingUser.value=null;userModal.value=false;Object.assign(userForm,{name:'',email:'',password:'',role:'cashier',active:true})}
-async function saveUser(){const id=editingUser.value;const body={...userForm};if(!body.password)delete body.password;if(await submit(()=>id?api.updateUser(id,body):api.createUser(body),`Pengguna berhasil ${id?'diubah':'ditambahkan'}`,[loadUsers]))closeUser()}
-async function removeUser(user:any){if(String(user.id)===String(currentUser.value.id)){await Swal.fire({icon:'warning',title:'Tidak dapat menghapus akun sendiri',confirmButtonColor:'#1d6b43'});return}const result=await Swal.fire({icon:'warning',title:`Hapus ${user.name}?`,text:'Pengguna tidak dapat login lagi.',showCancelButton:true,confirmButtonText:'Hapus',cancelButtonText:'Batal',confirmButtonColor:'#b8322a'});if(result.isConfirmed)await submit(()=>api.deleteUser(user.id),'Pengguna berhasil dihapus',[loadUsers],false)}
 function sameText(a:any,b:any){return String(a??'').trim()===String(b??'').trim()}
 function sameCode(a:any,b:any){return String(a??'').trim().toLowerCase()===String(b??'').trim().toLowerCase()}
 async function importData(kind:'items'|'customers'|'suppliers',event:Event){
@@ -137,7 +115,6 @@ async function exportMonthlyReport(){
   ];if(String(prompt.value||'').trim())sheets.push({name:'Catatan',columns:['Catatan','Dibuat pada'],rows:[[String(prompt.value).trim(),jakartaDateTime(new Date().toISOString())]]})
   await downloadWorkbook(`laporan-${dashboardYear.value}-${String(dashboardMonth.value).padStart(2,'0')}.xlsx`,sheets)
 }
-function printReceipt(transaction:any){selectedReceipt.value=transaction;printDocument('receipt')}
 onMounted(async()=>{try{if(api.token.value){currentUser.value=await api.me();if(route.path==='/login'){active.value='dashboard';await runLoaders([loadDashboard,loadTransactions,loadDebts]);await navigateTo('/')}else await loadActiveRoute()}else if(route.path!=='/login')await navigateTo('/login')}catch{api.token.value=null;currentUser.value=null;if(route.path!=='/login')await navigateTo('/login')}finally{authReady.value=true}})
 </script>
 
