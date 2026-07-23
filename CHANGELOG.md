@@ -23,9 +23,14 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 - Halaman administrasi pengguna dengan pengaturan role dan status akun.
 - Validasi role dan status pengguna terkini pada setiap authenticated request.
 - Unit test untuk issuance, parsing, dan validasi konfigurasi JWT.
+- Quality gate `npm run typecheck` menggunakan TypeScript dan `vue-tsc`.
+- Unit test frontend untuk parsing expiry JWT, keputusan refresh session, dan throttle activity tracker.
 
 ### Changed
 
+- Expiry JWT dan activity throttle diekstrak menjadi utility session yang dapat diuji.
+- Activity tracker membersihkan DOM listener dan page hook ketika plugin mengalami hot reload.
+- Frontend Vue/Vite lama dihapus setelah seluruh entrypoint aktif dipastikan menggunakan Nuxt.
 - Pemuatan data frontend dipisahkan per domain sehingga route aktif dan operasi CRUD hanya memuat data yang diperlukan tanpa menambah jumlah request API.
 - State dan operasi dashboard, barang, pelanggan, supplier, master data, transaksi, piutang, dan pengguna diekstrak dari `KoperasiConsole.vue` ke composable masing-masing.
 - Perataan kolom tabel dan input harga barang diperbaiki agar tampilan serta validasi form lebih konsisten.
@@ -39,12 +44,14 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 ### Fixed
 
+- Heading konten pada halaman master data dibedakan dari judul route agar hierarki halaman tidak terlihat berulang.
 - Mempertahankan data transaksi yang akan diubah ketika berpindah dari halaman histori ke halaman kasir atau pembelian.
 - Memperbaiki pattern kode/SKU agar valid pada browser yang menggunakan regular expression mode `v`.
 - Menyamakan dokumentasi port backend dengan proxy frontend.
 
 ### Security
 
+- File environment lokal dihapus dari seluruh histori Git dan histori bersih diverifikasi menggunakan Gitleaks.
 - Token yang sudah kedaluwarsa tidak dapat digunakan untuk menghidupkan kembali sliding session.
 - Respons `401` membersihkan token frontend dan mengarahkan pengguna kembali ke halaman login.
 - Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri.

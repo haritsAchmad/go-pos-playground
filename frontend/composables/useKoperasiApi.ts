@@ -1,3 +1,5 @@
+import { getSessionRefreshAction, getTokenExpiry } from '~/utils/session'
+
 // One shared promise prevents concurrent dashboard requests from refreshing the JWT repeatedly.
 let refreshInFlight: Promise<void> | null = null
 
@@ -6,25 +8,12 @@ export function useKoperasiApi() {
   const token = useCookie<string | null>('pos_access_token', { sameSite: 'strict' })
   const lastActivity = useState<number>('session-last-activity', () => 0)
 
-  // JWT expiry can be inspected locally; signature validation remains the backend's job.
-  const tokenExpiresAt = () => {
-    try {
-      const payload = token.value?.split('.')[1]
-      if (!payload) return 0
-      const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
-      const claims = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')))
-      return Number(claims.exp || 0)
-    } catch {
-      return 0
-    }
-  }
-
   // Refresh only near expiry. A valid token is required, so an idle/expired session cannot revive itself.
   const refreshIfNeeded = async () => {
     if (!token.value) return
-    const secondsLeft = tokenExpiresAt() - Math.floor(Date.now() / 1000)
-    if (secondsLeft > 300) return
-    if (secondsLeft <= 0) {
+    const refreshAction = getSessionRefreshAction(getTokenExpiry(token.value))
+    if (refreshAction === 'valid') return
+    if (refreshAction === 'expired') {
       token.value = null
       if (import.meta.client) await navigateTo('/login')
       throw new Error('Sesi telah berakhir. Silakan masuk kembali.')
@@ -55,7 +44,8 @@ export function useKoperasiApi() {
       lastActivity.value = Date.now()
       await refreshIfNeeded()
     }
-    const headers = token.value ? { Authorization: `Bearer ${token.value}` } : {}
+    const headers: Record<string, string> = {}
+    if (token.value) headers.Authorization = `Bearer ${token.value}`
     try {
       const payload = await $fetch<{ success: boolean; message: string; data: T }>(path, { baseURL, headers, ...options })
       return payload.data

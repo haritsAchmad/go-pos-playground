@@ -16,7 +16,7 @@ export function useExcelData() {
       worksheet.views = [{ state: 'frozen', ySplit: 1 }]
       worksheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, worksheet.rowCount), column: Math.max(1, sheet.columns.length) } }
       worksheet.columns.forEach(column => {
-        const longest = Math.max(10, ...column.values.slice(1).map(value => String(value ?? '').length))
+        const longest = Math.max(10, ...(column.values ?? []).slice(1).map(value => String(value ?? '').length))
         column.width = Math.min(longest + 2, 45)
       })
     })
@@ -31,17 +31,18 @@ export function useExcelData() {
 
   const parseExcel = async (file: File) => {
     const workbook = new ExcelJS.Workbook()
-    await workbook.xlsx.load(new Uint8Array(await file.arrayBuffer()))
+    await workbook.xlsx.load(await file.arrayBuffer())
     const worksheet = workbook.worksheets[0]
     if (!worksheet || worksheet.rowCount < 2) return []
 
-    const headers = worksheet.getRow(1).values
-      .slice(1)
-      .map(value => String(value ?? '').trim().toLowerCase())
+    const headers = Array.from(
+      { length: worksheet.columnCount },
+      (_, index) => worksheet.getRow(1).getCell(index + 1).text.trim().toLowerCase(),
+    )
     const rows: Record<string, string>[] = []
     worksheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return
-      const values = row.values.slice(1).map((_, index) => row.getCell(index + 1).text.trim())
+      const values = headers.map((_, index) => row.getCell(index + 1).text.trim())
       if (values.some(Boolean)) {
         rows.push(Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ''])))
       }

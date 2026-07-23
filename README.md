@@ -167,7 +167,8 @@ Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri. Sta
 |       `-- router/             # routes dan role policy
 |-- frontend/                   # Nuxt operational console
 |   |-- components/             # layout dan tampilan console
-|   `-- composables/            # state dan operasi per domain
+|   |-- composables/            # state dan operasi per domain
+|   `-- utils/                  # utility session dan unit test
 |-- docs/
 |-- migrations/
 |-- CHANGELOG.md
@@ -183,6 +184,8 @@ Set-Location backend
 go test ./...
 
 Set-Location ../frontend
+npm.cmd run typecheck
+npm.cmd test
 npm.cmd run build
 ```
 

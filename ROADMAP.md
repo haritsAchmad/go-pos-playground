@@ -13,14 +13,15 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 - Export laporan bulanan Excel multi-sheet dan laporan PDF
 - Frontend loader refactor berbasis route aktif
 - Pemisahan state dan operasi ke domain composables
+- TypeScript quality gate untuk frontend Nuxt
+- Cleanup activity tracker dan lifecycle sliding session
+- Unit test untuk expiry, refresh window, dan activity throttle
+- Penghapusan frontend Vue/Vite lama setelah migrasi Nuxt
 - Seed generator untuk data demo yang dapat direproduksi
 
 ## 🟨 In Progress
 
-- Migrasi dan cleanup TypeScript pada frontend
-- Cleanup activity tracker dan lifecycle sliding session
 - Perluasan automated test untuk business flow utama
-- Cleanup kode frontend lama setelah migrasi Nuxt
 
 ## ⬜ Planned
 
