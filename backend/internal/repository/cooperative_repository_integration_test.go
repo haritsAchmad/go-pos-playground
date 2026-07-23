@@ -11,6 +11,7 @@ import (
 	"go-pos-playground/internal/config"
 	"go-pos-playground/internal/database"
 	"go-pos-playground/internal/entity"
+	"go-pos-playground/internal/pkg/pagination"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -279,6 +280,50 @@ func TestDebtPaymentIntegration(t *testing.T) {
 		}
 		if got := f.stock(t); got != 7 {
 			t.Fatalf("stock = %d after rejected operations, want 7", got)
+		}
+	})
+}
+
+func TestPaginationIntegration(t *testing.T) {
+	t.Run("customers include stable metadata and page boundaries", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		q := pgx.Identifier{f.schema}.Sanitize()
+		for i := 1; i <= 4; i++ {
+			if _, err := f.db.Exec(f.ctx, fmt.Sprintf(`INSERT INTO %s.customers(code,name,customer_type) VALUES($1,$2,'MEMBER')`, q), fmt.Sprintf("C-%02d", i), fmt.Sprintf("Customer %02d", i)); err != nil {
+				t.Fatalf("insert customer %d: %v", i, err)
+			}
+		}
+		result, err := f.repository.CustomersPage(f.ctx, pagination.Params{Page: 2, PerPage: 2})
+		if err != nil {
+			t.Fatalf("get customer page: %v", err)
+		}
+		if result.Meta.Total != 5 || result.Meta.TotalPages != 3 || len(result.Items) != 2 {
+			t.Fatalf("page result = items:%d meta:%+v, want 2 items and 5 total across 3 pages", len(result.Items), result.Meta)
+		}
+		if result.Items[0].Code != "C-02" || result.Items[1].Code != "C-03" {
+			t.Fatalf("page codes = %s, %s; want C-02, C-03", result.Items[0].Code, result.Items[1].Code)
+		}
+	})
+
+	t.Run("transaction type filter is counted before pagination", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		for i := 0; i < 3; i++ {
+			if _, err := f.repository.CreateTransaction(f.ctx, f.request("SALE", 1, 1000, false)); err != nil {
+				t.Fatalf("create sale %d: %v", i, err)
+			}
+		}
+		if _, err := f.repository.CreateTransaction(f.ctx, f.request("PURCHASE", 1, 500, false)); err != nil {
+			t.Fatalf("create purchase: %v", err)
+		}
+		result, err := f.repository.TransactionsPage(f.ctx, "SALE", pagination.Params{Page: 2, PerPage: 2})
+		if err != nil {
+			t.Fatalf("get transaction page: %v", err)
+		}
+		if result.Meta.Total != 3 || result.Meta.TotalPages != 2 || len(result.Items) != 1 {
+			t.Fatalf("page result = items:%d meta:%+v, want one item on page 2 and three filtered total", len(result.Items), result.Meta)
+		}
+		if len(result.Items[0].Items) != 1 || result.Items[0].TransactionType != "SALE" {
+			t.Fatalf("paged transaction was not fully hydrated: %+v", result.Items[0])
 		}
 	})
 }

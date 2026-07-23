@@ -7,6 +7,7 @@ import (
 
 	dto "go-pos-playground/internal/dto/items"
 	"go-pos-playground/internal/entity"
+	"go-pos-playground/internal/pkg/pagination"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,13 +28,29 @@ func NewItemRepository(db *pgxpool.Pool, schema string) *ItemRepository {
 }
 
 func (r *ItemRepository) FindAll(ctx context.Context) ([]entity.Items, error) {
+	return r.find(ctx, "", nil)
+}
+
+func (r *ItemRepository) FindPage(ctx context.Context, params pagination.Params) (pagination.Result[entity.Items], error) {
+	var total int64
+	if err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.items WHERE deleted_at IS NULL`, r.schema)).Scan(&total); err != nil {
+		return pagination.Result[entity.Items]{}, err
+	}
+	items, err := r.find(ctx, " LIMIT $1 OFFSET $2", []any{params.PerPage, params.Offset()})
+	if err != nil {
+		return pagination.Result[entity.Items]{}, err
+	}
+	return pagination.NewResult(items, params, total), nil
+}
+
+func (r *ItemRepository) find(ctx context.Context, suffix string, args []any) ([]entity.Items, error) {
 	query := fmt.Sprintf(`
 		SELECT i.id,i.supplier_id,COALESCE(i.sku,''),i.category_id,c.name,i.brand_id,b.name,i.unit_id,u.name,i.name,i.description,i.stock,i.price,i.cost,i.created_at,i.updated_at
 		FROM %s.items i LEFT JOIN %s.categories c ON c.id=i.category_id LEFT JOIN %s.brands b ON b.id=i.brand_id LEFT JOIN %s.units u ON u.id=i.unit_id
-		WHERE i.deleted_at IS NULL ORDER BY i.id ASC
-	`, r.schema, r.schema, r.schema, r.schema)
+		WHERE i.deleted_at IS NULL ORDER BY i.id ASC%s
+	`, r.schema, r.schema, r.schema, r.schema, suffix)
 
-	rows, err := r.db.Query(ctx, query)
+	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

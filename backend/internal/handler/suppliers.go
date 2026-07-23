@@ -21,6 +21,19 @@ func NewSupplierHandler(supplierRepo *repository.SupplierRepository) *SupplierHa
 }
 
 func (h *SupplierHandler) FindAll(w http.ResponseWriter, r *http.Request) {
+	params, paginated, ok := paginationParams(w, r)
+	if !ok {
+		return
+	}
+	if paginated {
+		suppliers, err := h.supplierRepo.FindPage(r.Context(), params)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to get suppliers")
+			return
+		}
+		response.Success(w, http.StatusOK, "suppliers fetched successfully", suppliers)
+		return
+	}
 	suppliers, err := h.supplierRepo.FindAll(r.Context())
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to get suppliers")

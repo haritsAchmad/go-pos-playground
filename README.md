@@ -149,6 +149,34 @@ Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri. Sta
 | `POST` | `/debts/{id}/payments` | Catat pembayaran piutang |
 | `GET, POST, PUT, DELETE` | `/masters/{name}` | Kelola master data |
 
+### Pagination API
+
+Endpoint daftar `/items`, `/suppliers`, `/customers`, `/transactions`, `/debts`, dan `/users` mendukung pagination opt-in:
+
+```http
+GET /items?page=1&per_page=20
+GET /transactions?type=SALE&page=2&per_page=25
+```
+
+`page` dimulai dari `1`, nilai default `per_page` adalah `20`, dan batas maksimalnya `100`. Request dengan salah satu parameter pagination mengembalikan bentuk berikut:
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [],
+    "meta": {
+      "page": 1,
+      "per_page": 20,
+      "total": 0,
+      "total_pages": 0
+    }
+  }
+}
+```
+
+Request tanpa `page` dan `per_page` tetap mengembalikan array seperti sebelumnya agar frontend operasional, pilihan barang transaksi, dan proses export tetap kompatibel. Integrasi pagination pada tabel frontend akan dilakukan bersama pencarian, sorting, dan filtering server-side.
+
 ## Struktur project
 
 ```text
@@ -224,7 +252,7 @@ go run ./cmd/seed `
 
 ## Roadmap
 
-Pengembangan berikutnya berfokus pada pagination dan filtering API, peningkatan test coverage, session management, observability, serta deployment. Status lengkap dan prioritas terkini tersedia di [ROADMAP.md](ROADMAP.md).
+Pengembangan berikutnya berfokus pada pencarian, sorting, dan filtering API, session management, observability, serta deployment. Status lengkap dan prioritas terkini tersedia di [ROADMAP.md](ROADMAP.md).
 
 ## AI-assisted development
 

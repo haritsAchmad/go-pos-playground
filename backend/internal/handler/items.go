@@ -27,6 +27,19 @@ func NewItemHandler(itemRepo *repository.ItemRepository) *ItemHandler {
 }
 
 func (h *ItemHandler) FindAll(w http.ResponseWriter, r *http.Request) {
+	params, paginated, ok := paginationParams(w, r)
+	if !ok {
+		return
+	}
+	if paginated {
+		items, err := h.itemRepo.FindPage(r.Context(), params)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to get items")
+			return
+		}
+		response.Success(w, http.StatusOK, "items fetched successfully", items)
+		return
+	}
 	items, err := h.itemRepo.FindAll(r.Context())
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to get items")

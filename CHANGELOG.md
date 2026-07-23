@@ -27,6 +27,9 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 - Unit test frontend untuk parsing expiry JWT, keputusan refresh session, dan throttle activity tracker.
 - Integration test PostgreSQL terisolasi untuk penjualan, pembelian, rollback stok, edit, pembatalan transaksi, dan pembayaran piutang.
 - Guard integration test yang hanya menerima database playground serta membuat dan membersihkan schema `go_pos_test_*`.
+- Pagination backend opt-in untuk barang, supplier, pelanggan, transaksi, piutang, dan pengguna.
+- Metadata pagination reusable dengan validasi halaman, default 20 baris, dan batas maksimal 100 baris.
+- Unit test parser pagination dan integration test PostgreSQL untuk batas halaman serta kombinasi filter tipe transaksi.
 
 ### Changed
 

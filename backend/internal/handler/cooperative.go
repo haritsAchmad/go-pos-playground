@@ -97,6 +97,19 @@ func (h *CooperativeHandler) Masters(w http.ResponseWriter, r *http.Request) {
 
 func (h *CooperativeHandler) Customers(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		params, paginated, ok := paginationParams(w, r)
+		if !ok {
+			return
+		}
+		if paginated {
+			data, err := h.repo.CustomersPage(r.Context(), params)
+			if err != nil {
+				response.Error(w, 500, "failed to get customers")
+				return
+			}
+			response.Success(w, 200, "customers fetched", data)
+			return
+		}
 		data, err := h.repo.Customers(r.Context())
 		if err != nil {
 			response.Error(w, 500, "failed to get customers")
@@ -160,6 +173,19 @@ func (h *CooperativeHandler) CustomerDetail(w http.ResponseWriter, r *http.Reque
 
 func (h *CooperativeHandler) Transactions(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		params, paginated, ok := paginationParams(w, r)
+		if !ok {
+			return
+		}
+		if paginated {
+			data, err := h.repo.TransactionsPage(r.Context(), r.URL.Query().Get("type"), params)
+			if err != nil {
+				response.Error(w, 500, "failed to get transactions")
+				return
+			}
+			response.Success(w, 200, "transactions fetched", data)
+			return
+		}
 		data, err := h.repo.Transactions(r.Context(), r.URL.Query().Get("type"))
 		if err != nil {
 			response.Error(w, 500, "failed to get transactions")
@@ -231,6 +257,19 @@ func (h *CooperativeHandler) VoidTransaction(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *CooperativeHandler) Debts(w http.ResponseWriter, r *http.Request) {
+	params, paginated, ok := paginationParams(w, r)
+	if !ok {
+		return
+	}
+	if paginated {
+		data, err := h.repo.DebtsPage(r.Context(), params)
+		if err != nil {
+			response.Error(w, 500, "failed to get debts")
+			return
+		}
+		response.Success(w, 200, "debts fetched", data)
+		return
+	}
 	data, err := h.repo.Debts(r.Context())
 	if err != nil {
 		response.Error(w, 500, "failed to get debts")
