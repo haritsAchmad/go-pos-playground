@@ -28,14 +28,20 @@ func New(
 		}
 		authHandler.Login(w, r)
 	})
-	// Refresh is protected so only a still-valid token can extend its session.
-	mux.HandleFunc("/auth/refresh", middleware.Authenticate(tokens, authRepo, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/auth/refresh", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		authHandler.Refresh(w, r)
-	}))
+	})
+	mux.HandleFunc("/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		authHandler.Logout(w, r)
+	})
 	mux.HandleFunc("/auth/me", middleware.Authenticate(tokens, authRepo, authHandler.Me))
 	protect := func(next http.HandlerFunc, roles ...string) http.HandlerFunc {
 		return middleware.Authenticate(tokens, authRepo, middleware.Authorize(next, roles...))

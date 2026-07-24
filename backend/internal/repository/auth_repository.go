@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,6 +16,7 @@ import (
 )
 
 var ErrUserNotFound = errors.New("user not found")
+var ErrInvalidSession = errors.New("session is expired, revoked, or invalid")
 
 type AuthRepository struct {
 	db     *pgxpool.Pool
@@ -51,6 +53,75 @@ func (r *AuthRepository) SeedAdmin(ctx context.Context, name, email, password st
 		return err
 	}
 	_, err = r.db.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.users(name,email,password_hash,role) VALUES($1,$2,$3,'admin')`, r.schema), name, strings.ToLower(strings.TrimSpace(email)), string(hash))
+	return err
+}
+
+func (r *AuthRepository) CreateSession(ctx context.Context, userID int64, tokenHash string, expiresAt time.Time) error {
+	_, err := r.db.Exec(ctx, fmt.Sprintf(
+		`INSERT INTO %s.auth_sessions(user_id,token_hash,expires_at) VALUES($1,$2,$3)`,
+		r.schema,
+	), userID, tokenHash, expiresAt)
+	return err
+}
+
+func (r *AuthRepository) RotateSession(ctx context.Context, oldHash, newHash string, expiresAt time.Time) (*entity.User, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	var sessionID int64
+	var revokedAt *time.Time
+	var currentExpiry time.Time
+	var user entity.User
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT s.id,s.expires_at,s.revoked_at,u.id,u.name,u.email,u.role,u.active
+		FROM %s.auth_sessions s
+		JOIN %s.users u ON u.id=s.user_id
+		WHERE s.token_hash=$1
+		FOR UPDATE OF s
+	`, r.schema, r.schema), oldHash).Scan(
+		&sessionID, &currentExpiry, &revokedAt,
+		&user.ID, &user.Name, &user.Email, &user.Role, &user.Active,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrInvalidSession
+	}
+	if err != nil {
+		return nil, err
+	}
+	if revokedAt != nil || !currentExpiry.After(time.Now()) || !user.Active {
+		return nil, ErrInvalidSession
+	}
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.auth_sessions
+		SET revoked_at=NOW(),replaced_by_hash=$1
+		WHERE id=$2 AND revoked_at IS NULL
+	`, r.schema), newHash, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() != 1 {
+		return nil, ErrInvalidSession
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.auth_sessions(user_id,token_hash,expires_at)
+		VALUES($1,$2,$3)
+	`, r.schema), user.ID, newHash, expiresAt); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *AuthRepository) RevokeSession(ctx context.Context, tokenHash string) error {
+	_, err := r.db.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.auth_sessions SET revoked_at=COALESCE(revoked_at,NOW())
+		WHERE token_hash=$1
+	`, r.schema), tokenHash)
 	return err
 }
 

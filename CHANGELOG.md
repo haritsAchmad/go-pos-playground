@@ -39,6 +39,9 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 - Pencarian nama/email, filter role/status aktif, dan sorting untuk daftar pengguna admin.
 - Pencarian histori transaksi, filter tipe/status/tanggal, dan sorting dengan batas tanggal berbasis zona waktu Asia/Jakarta.
 - Pencarian invoice/pelanggan, filter status/rentang sisa, dan sorting untuk daftar piutang.
+- Sorting reusable melalui klik header kolom dengan indikator arah pada tabel barang, pelanggan, supplier, histori, dan pengguna.
+- Session server-side dengan refresh token acak, penyimpanan hash, rotasi sekali pakai, masa berlaku configurable, dan endpoint logout.
+- Unit test sorting frontend dan refresh-token manager backend.
 
 ### Changed
 
@@ -50,6 +53,7 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 - State dan operasi dashboard, barang, pelanggan, supplier, master data, transaksi, piutang, dan pengguna diekstrak dari `KoperasiConsole.vue` ke composable masing-masing.
 - Perataan kolom tabel dan input harga barang diperbaiki agar tampilan serta validasi form lebih konsisten.
 - Contoh masa berlaku access token diubah menjadi 15 menit; frontend memperbarui token pada lima menit terakhir saat ada aktivitas.
+- Sliding session berbasis access token diganti dengan refresh-token rotation melalui cookie `HttpOnly`.
 - Seluruh endpoint operasional kini membutuhkan autentikasi, kecuali `/health` dan `/auth/login`.
 - Kasir dapat melakukan CRUD barang, pelanggan, dan supplier.
 - Kasir dapat membuat merek baru dari form barang tanpa memperoleh akses penuh ke master data.
@@ -67,7 +71,8 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 ### Security
 
 - File environment lokal dihapus dari seluruh histori Git dan histori bersih diverifikasi menggunakan Gitleaks.
-- Token yang sudah kedaluwarsa tidak dapat digunakan untuk menghidupkan kembali sliding session.
+- Refresh token lama langsung dicabut setelah rotasi dan tidak dapat digunakan ulang.
+- Logout mencabut refresh session server-side.
 - Respons `401` membersihkan token frontend dan mengarahkan pengguna kembali ke halaman login.
 - Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri.
 - Token milik pengguna yang dinonaktifkan atau dihapus langsung ditolak.

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -17,6 +18,40 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
+
+func TestSessionRotationIntegration(t *testing.T) {
+	f := newTransactionFixture(t)
+	q := pgx.Identifier{f.schema}.Sanitize()
+	var userID int64
+	if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`
+		INSERT INTO %s.users(name,email,password_hash,role)
+		VALUES('Session User','session@example.com','unused','cashier')
+		RETURNING id
+	`, q)).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewAuthRepository(f.db, f.schema)
+	if err := repo.CreateSession(f.ctx, userID, "old-hash", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	user, err := repo.RotateSession(f.ctx, "old-hash", "new-hash", time.Now().Add(2*time.Hour))
+	if err != nil || user.ID != userID {
+		t.Fatalf("RotateSession() user=%+v err=%v", user, err)
+	}
+	if _, err := repo.RotateSession(f.ctx, "old-hash", "reused-hash", time.Now().Add(time.Hour)); !errors.Is(err, ErrInvalidSession) {
+		t.Fatalf("reused refresh token error = %v, want ErrInvalidSession", err)
+	}
+	var activeSessions int
+	if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`
+		SELECT COUNT(*) FROM %s.auth_sessions
+		WHERE user_id=$1 AND revoked_at IS NULL
+	`, q), userID).Scan(&activeSessions); err != nil {
+		t.Fatal(err)
+	}
+	if activeSessions != 1 {
+		t.Fatalf("active sessions = %d, want 1", activeSessions)
+	}
+}
 
 const integrationTestSchemaPrefix = "go_pos_test_"
 

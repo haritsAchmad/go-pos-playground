@@ -50,6 +50,7 @@ DB_SSLMODE=disable
 JWT_SECRET=ganti-dengan-random-secret-minimal-32-karakter
 JWT_ISSUER=go-pos-playground
 JWT_EXPIRY_MINUTES=15
+REFRESH_TOKEN_EXPIRY_DAYS=7
 
 INITIAL_ADMIN_NAME=Administrator
 INITIAL_ADMIN_EMAIL=admin@example.com
@@ -92,23 +93,24 @@ Content-Type: application/json
 }
 ```
 
-Endpoint selain health check dan login membutuhkan header berikut:
+Endpoint operasional selain health check, login, refresh, dan logout membutuhkan header berikut:
 
 ```http
 Authorization: Bearer <access_token>
 ```
 
-### Sliding session
+### Session dan refresh token rotation
 
-Access token berlaku sesuai `JWT_EXPIRY_MINUTES`. Frontend menggunakan sliding session ringan untuk pengguna aktif:
+Access token berlaku sesuai `JWT_EXPIRY_MINUTES`. Login juga membuat session server-side
+dan refresh token acak yang dikirim melalui cookie `HttpOnly`, sehingga token jangka
+panjang tidak dapat dibaca JavaScript:
 
 - Aktivitas seperti perpindahan halaman, pemuatan data, dan operasi CRUD dicatat di browser tanpa request background tambahan.
-- Ketika request API dilakukan dan sisa umur token maksimal lima menit, frontend memanggil `POST /auth/refresh` satu kali lalu menggunakan token baru.
+- Ketika request API dilakukan dan access token mendekati atau melewati masa kedaluwarsa, frontend memanggil `POST /auth/refresh`.
 - Request paralel berbagi proses refresh yang sama agar tidak menerbitkan banyak token sekaligus.
-- Token yang sudah kedaluwarsa tidak dapat diperbarui. Pengguna yang idle sampai batas waktu akan diarahkan kembali ke `/login`.
-- Mengubah `JWT_EXPIRY_MINUTES` memerlukan restart backend dan berlaku untuk token yang diterbitkan setelah login atau refresh berikutnya.
-
-Implementasi ini tidak menggunakan refresh token jangka panjang atau penyimpanan session server-side. Karena itu, logout tidak mencabut JWT yang sudah disalin ke tempat lain; token tersebut tetap valid sampai waktu kedaluwarsanya.
+- Setiap refresh memutar token: token lama dicabut dan hanya hash token yang disimpan di tabel `auth_sessions`.
+- Logout mencabut refresh session aktif dan menghapus cookie. Access token yang sudah diterbitkan tetap berumur pendek serta tidak dapat dipakai jika akun dinonaktifkan atau dihapus.
+- Session berakhir setelah `REFRESH_TOKEN_EXPIRY_DAYS` atau ketika dicabut. Mengubah masa berlaku token memerlukan restart backend.
 
 ### Role dan akses
 
@@ -131,7 +133,8 @@ Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri. Sta
 |---|---|---|
 | `GET` | `/health` | Health check publik |
 | `POST` | `/auth/login` | Login |
-| `POST` | `/auth/refresh` | Perpanjang access token yang masih aktif |
+| `POST` | `/auth/refresh` | Putar refresh session dan terbitkan access token baru |
+| `POST` | `/auth/logout` | Cabut refresh session aktif |
 | `GET` | `/auth/me` | Profil pengguna aktif |
 | `GET, POST` | `/users` | Daftar dan tambah pengguna |
 | `PUT, DELETE` | `/users/{id}` | Ubah dan hapus pengguna |

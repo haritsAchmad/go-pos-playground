@@ -32,11 +32,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	refreshTokens, err := auth.NewRefreshManager(cfg.RefreshExpiryDays)
+	if err != nil {
+		log.Fatal(err)
+	}
 	authRepo := repository.NewAuthRepository(db, cfg.DBSchema)
 	if err := authRepo.SeedAdmin(ctx, cfg.AdminName, cfg.AdminEmail, cfg.AdminPassword); err != nil {
 		log.Fatal(err)
 	}
-	authHandler := handler.NewAuthHandler(authRepo, tokens)
+	authHandler := handler.NewAuthHandler(authRepo, tokens, refreshTokens)
 
 	itemRepo := repository.NewItemRepository(db, cfg.DBSchema)
 	itemHandler := handler.NewItemHandler(itemRepo)

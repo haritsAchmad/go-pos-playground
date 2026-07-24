@@ -23,6 +23,8 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 - Penghapusan frontend Vue/Vite lama setelah migrasi Nuxt
 - Seed generator untuk data demo yang dapat direproduksi
 - Pencarian, sorting, dan filtering API untuk barang, supplier, pelanggan, transaksi, piutang, dan pengguna
+- Sorting frontend melalui header kolom tabel operasional
+- Refresh token rotation dan session server-side dengan logout/revocation
 
 ## 🟨 In Progress
 
@@ -30,7 +32,6 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 
 ## ⬜ Planned
 
-- Refresh token rotation atau session server-side
 - Audit log aktivitas pengguna
 - Pemulihan data yang menggunakan soft delete
 - Benchmark dan performance baseline

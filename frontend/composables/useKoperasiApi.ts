@@ -8,22 +8,18 @@ export function useKoperasiApi() {
   const token = useCookie<string | null>('pos_access_token', { sameSite: 'strict' })
   const lastActivity = useState<number>('session-last-activity', () => 0)
 
-  // Refresh only near expiry. A valid token is required, so an idle/expired session cannot revive itself.
+  // The HttpOnly refresh cookie can rotate an expired access token without exposing
+  // long-lived credentials to browser JavaScript.
   const refreshIfNeeded = async () => {
     if (!token.value) return
     const refreshAction = getSessionRefreshAction(getTokenExpiry(token.value))
     if (refreshAction === 'valid') return
-    if (refreshAction === 'expired') {
-      token.value = null
-      if (import.meta.client) await navigateTo('/login')
-      throw new Error('Sesi telah berakhir. Silakan masuk kembali.')
-    }
     if (!refreshInFlight) {
       refreshInFlight = (async () => {
         const payload = await $fetch<{ data: { access_token: string } }>('/auth/refresh', {
           baseURL,
           method: 'POST',
-          headers: { Authorization: `Bearer ${token.value}` },
+          credentials: 'include',
         })
         token.value = payload.data.access_token
       })().finally(() => { refreshInFlight = null })
@@ -38,7 +34,7 @@ export function useKoperasiApi() {
   }
 
   const request = async <T>(path: string, options: Record<string, unknown> = {}) => {
-    const isPublicRequest = path === '/auth/login'
+    const isPublicRequest = path === '/auth/login' || path === '/auth/refresh' || path === '/auth/logout'
     if (!isPublicRequest && token.value) {
       // Protected API calls represent real activity such as navigation, CRUD, or report loading.
       lastActivity.value = Date.now()
@@ -47,7 +43,7 @@ export function useKoperasiApi() {
     const headers: Record<string, string> = {}
     if (token.value) headers.Authorization = `Bearer ${token.value}`
     try {
-      const payload = await $fetch<{ success: boolean; message: string; data: T }>(path, { baseURL, headers, ...options })
+      const payload = await $fetch<{ success: boolean; message: string; data: T }>(path, { baseURL, headers, credentials: 'include', ...options })
       return payload.data
     } catch (error: any) {
       // A rejected token is never retried indefinitely; clear it and require a fresh login.
@@ -62,6 +58,7 @@ export function useKoperasiApi() {
     token,
     refreshIfNeeded,
     login: (email: string, password: string) => request<any>('/auth/login', { method: 'POST', body: { email, password } }),
+    logout: () => request('/auth/logout', { method: 'POST' }),
     me: () => request<any>('/auth/me'),
     users: () => request<any[]>('/users'),
     createUser: (body: any) => request('/users', { method: 'POST', body }),

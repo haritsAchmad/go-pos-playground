@@ -16,12 +16,24 @@ import (
 )
 
 type AuthHandler struct {
-	repo   *repository.AuthRepository
-	tokens *auth.Manager
+	repo          *repository.AuthRepository
+	tokens        *auth.Manager
+	refreshTokens *auth.RefreshManager
 }
 
-func NewAuthHandler(repo *repository.AuthRepository, tokens *auth.Manager) *AuthHandler {
-	return &AuthHandler{repo, tokens}
+const refreshCookieName = "pos_refresh_token"
+
+func NewAuthHandler(repo *repository.AuthRepository, tokens *auth.Manager, refreshTokens *auth.RefreshManager) *AuthHandler {
+	return &AuthHandler{repo: repo, tokens: tokens, refreshTokens: refreshTokens}
+}
+
+func (h *AuthHandler) setRefreshCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
+	http.SetCookie(w, &http.Cookie{
+		Name: refreshCookieName, Value: value, Path: "/",
+		MaxAge: maxAge, HttpOnly: true,
+		Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+		SameSite: http.SameSiteStrictMode,
+	})
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -51,32 +63,62 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "failed to create access token")
 		return
 	}
+	refreshToken, refreshHash, refreshExpiresAt, err := h.refreshTokens.Issue()
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+	if err := h.repo.CreateSession(r.Context(), u.ID, refreshHash, refreshExpiresAt); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+	h.setRefreshCookie(w, r, refreshToken, h.refreshTokens.MaxAge())
 	response.Success(w, http.StatusOK, "login successful", map[string]any{"access_token": token, "token_type": "Bearer", "expires_at": expiresAt, "user": u})
 }
 
-// Refresh extends an active session by issuing a fresh JWT for the authenticated user.
-// The authentication middleware has already rejected expired, deleted, or inactive accounts.
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
-	claims, ok := middleware.ClaimsFromContext(r.Context())
-	if !ok {
-		response.Error(w, http.StatusUnauthorized, "authentication required")
+	cookie, err := r.Cookie(refreshCookieName)
+	if err != nil || cookie.Value == "" {
+		response.Error(w, http.StatusUnauthorized, "refresh session required")
 		return
 	}
-	userID, err := strconv.ParseInt(claims.Subject, 10, 64)
+	nextToken, nextHash, refreshExpiresAt, err := h.refreshTokens.Issue()
 	if err != nil {
-		response.Error(w, http.StatusUnauthorized, "invalid access token")
+		response.Error(w, http.StatusInternalServerError, "failed to rotate session")
 		return
 	}
-	token, expiresAt, err := h.tokens.Issue(userID, claims.Name, claims.Email, claims.Role)
+	user, err := h.repo.RotateSession(r.Context(), auth.HashRefreshToken(cookie.Value), nextHash, refreshExpiresAt)
+	if errors.Is(err, repository.ErrInvalidSession) {
+		h.setRefreshCookie(w, r, "", -1)
+		response.Error(w, http.StatusUnauthorized, "refresh session expired or invalid")
+		return
+	}
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to rotate session")
+		return
+	}
+	token, expiresAt, err := h.tokens.Issue(user.ID, user.Name, user.Email, user.Role)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to refresh access token")
 		return
 	}
+	h.setRefreshCookie(w, r, nextToken, h.refreshTokens.MaxAge())
 	response.Success(w, http.StatusOK, "access token refreshed", map[string]any{
 		"access_token": token,
 		"token_type":   "Bearer",
 		"expires_at":   expiresAt,
 	})
+}
+
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(refreshCookieName); err == nil && cookie.Value != "" {
+		if err := h.repo.RevokeSession(r.Context(), auth.HashRefreshToken(cookie.Value)); err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to end session")
+			return
+		}
+	}
+	h.setRefreshCookie(w, r, "", -1)
+	response.Success(w, http.StatusOK, "logout successful", nil)
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
