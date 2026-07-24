@@ -280,6 +280,20 @@ Endpoint admin `GET /users` menerima `search` pada nama dan email, filter
 `role=admin|cashier|viewer`, filter `active=true|false`, serta sorting berdasarkan
 `id`, `name`, `email`, `role`, atau `active`.
 
+Endpoint `GET /transactions` menerima:
+
+- `search` pada nomor invoice, pelanggan, supplier, dan catatan
+- `type=SALE|PURCHASE`
+- `payment_status=PAID|UNPAID|PARTIAL`
+- `status=ACTIVE|VOID`
+- `date_from` dan `date_to` dalam format `YYYY-MM-DD` berdasarkan zona waktu Asia/Jakarta
+- sorting `id`, `invoice_no`, `transaction_date`, `grand_total`, `payment_status`, atau `status`
+
+Endpoint `GET /debts` menerima `search` pada invoice dan pelanggan, filter
+`status=OPEN|PAID`, rentang `min_remaining`/`max_remaining`, serta sorting `id`,
+`invoice_no`, `customer_name`, `original_amount`, `remaining_amount`, `status`,
+atau `created_at`.
+
 ## AI-assisted development
 
 Project ini dirancang, diarahkan, diuji, dan direview oleh Harits Achmad Fauzan. ChatGPT dan Codex digunakan sebagai alat bantu untuk brainstorming, diskusi arsitektur, review kode, refactoring, dan implementasi. Keputusan akhir, validasi fitur, smoke testing, dan persetujuan perubahan tetap dilakukan oleh pemilik project.

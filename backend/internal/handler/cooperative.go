@@ -189,12 +189,51 @@ func (h *CooperativeHandler) CustomerDetail(w http.ResponseWriter, r *http.Reque
 
 func (h *CooperativeHandler) Transactions(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		query, err := listquery.Parse(r.URL.Query(), listquery.Config{
+			DefaultSort: "transaction_date",
+			Sorts: map[string]bool{
+				"id": true, "invoice_no": true, "transaction_date": true,
+				"grand_total": true, "payment_status": true, "status": true,
+			},
+			Filters: map[string]bool{
+				"payment_status": true, "status": true, "date_from": true, "date_to": true,
+			},
+		})
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		kind := r.URL.Query().Get("type")
+		if kind != "" && kind != "SALE" && kind != "PURCHASE" {
+			response.Error(w, http.StatusBadRequest, "type must be SALE or PURCHASE")
+			return
+		}
+		if value := query.Values["payment_status"]; value != "" && value != "PAID" && value != "UNPAID" && value != "PARTIAL" {
+			response.Error(w, http.StatusBadRequest, "payment_status must be PAID, UNPAID, or PARTIAL")
+			return
+		}
+		if value := query.Values["status"]; value != "" && value != "ACTIVE" && value != "VOID" {
+			response.Error(w, http.StatusBadRequest, "status must be ACTIVE or VOID")
+			return
+		}
+		for _, key := range []string{"date_from", "date_to"} {
+			if value := query.Values[key]; value != "" {
+				if _, err := time.Parse("2006-01-02", value); err != nil {
+					response.Error(w, http.StatusBadRequest, key+" must use YYYY-MM-DD")
+					return
+				}
+			}
+		}
+		if from, to := query.Values["date_from"], query.Values["date_to"]; from != "" && to != "" && from > to {
+			response.Error(w, http.StatusBadRequest, "date_from must not exceed date_to")
+			return
+		}
 		params, paginated, ok := paginationParams(w, r)
 		if !ok {
 			return
 		}
 		if paginated {
-			data, err := h.repo.TransactionsPage(r.Context(), r.URL.Query().Get("type"), params)
+			data, err := h.repo.TransactionsPageQuery(r.Context(), kind, params, query)
 			if err != nil {
 				response.Error(w, 500, "failed to get transactions")
 				return
@@ -202,7 +241,7 @@ func (h *CooperativeHandler) Transactions(w http.ResponseWriter, r *http.Request
 			response.Success(w, 200, "transactions fetched", data)
 			return
 		}
-		data, err := h.repo.Transactions(r.Context(), r.URL.Query().Get("type"))
+		data, err := h.repo.TransactionsQuery(r.Context(), kind, query)
 		if err != nil {
 			response.Error(w, 500, "failed to get transactions")
 			return
@@ -273,12 +312,42 @@ func (h *CooperativeHandler) VoidTransaction(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *CooperativeHandler) Debts(w http.ResponseWriter, r *http.Request) {
+	query, err := listquery.Parse(r.URL.Query(), listquery.Config{
+		DefaultSort: "created_at",
+		Sorts: map[string]bool{
+			"id": true, "invoice_no": true, "customer_name": true,
+			"original_amount": true, "remaining_amount": true, "status": true, "created_at": true,
+		},
+		Filters: map[string]bool{"status": true, "min_remaining": true, "max_remaining": true},
+	})
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if status := query.Values["status"]; status != "" && status != "OPEN" && status != "PAID" {
+		response.Error(w, http.StatusBadRequest, "status must be OPEN or PAID")
+		return
+	}
+	minRemaining, hasMin, err := query.NonNegativeInt("min_remaining")
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	maxRemaining, hasMax, err := query.NonNegativeInt("max_remaining")
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if hasMin && hasMax && minRemaining > maxRemaining {
+		response.Error(w, http.StatusBadRequest, "min_remaining must not exceed max_remaining")
+		return
+	}
 	params, paginated, ok := paginationParams(w, r)
 	if !ok {
 		return
 	}
 	if paginated {
-		data, err := h.repo.DebtsPage(r.Context(), params)
+		data, err := h.repo.DebtsPageQuery(r.Context(), params, query)
 		if err != nil {
 			response.Error(w, 500, "failed to get debts")
 			return
@@ -286,7 +355,7 @@ func (h *CooperativeHandler) Debts(w http.ResponseWriter, r *http.Request) {
 		response.Success(w, 200, "debts fetched", data)
 		return
 	}
-	data, err := h.repo.Debts(r.Context())
+	data, err := h.repo.DebtsQuery(r.Context(), query)
 	if err != nil {
 		response.Error(w, 500, "failed to get debts")
 		return

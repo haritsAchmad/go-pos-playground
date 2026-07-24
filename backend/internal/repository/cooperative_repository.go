@@ -316,40 +316,105 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 }
 
 func (r *CooperativeRepository) Transactions(ctx context.Context, kind string) ([]entity.Transaction, error) {
-	return r.transactions(ctx, kind, nil)
+	return r.TransactionsQuery(ctx, kind, defaultTransactionQuery())
 }
 
 func (r *CooperativeRepository) TransactionsPage(ctx context.Context, kind string, params pagination.Params) (pagination.Result[entity.Transaction], error) {
-	args := []any{}
-	filter := ""
-	if kind == "SALE" || kind == "PURCHASE" {
-		filter = " AND transaction_type=$1"
-		args = append(args, kind)
+	return r.TransactionsPageQuery(ctx, kind, params, defaultTransactionQuery())
+}
+
+func defaultTransactionQuery() listquery.Params {
+	return listquery.Params{Sort: "transaction_date", Order: "desc", Values: map[string]string{}}
+}
+
+func (r *CooperativeRepository) TransactionsQuery(ctx context.Context, kind string, query listquery.Params) ([]entity.Transaction, error) {
+	where, order, args, err := transactionQueryParts(kind, query)
+	if err != nil {
+		return nil, err
 	}
-	var total int64
-	if err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.transactions WHERE TRUE%s`, r.schema, filter), args...).Scan(&total); err != nil {
+	return r.transactions(ctx, where, order, "", args)
+}
+
+func (r *CooperativeRepository) TransactionsPageQuery(ctx context.Context, kind string, params pagination.Params, query listquery.Params) (pagination.Result[entity.Transaction], error) {
+	where, order, args, err := transactionQueryParts(kind, query)
+	if err != nil {
 		return pagination.Result[entity.Transaction]{}, err
 	}
-	items, err := r.transactions(ctx, kind, &params)
+	var total int64
+	if err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.transactions t LEFT JOIN %s.customers c ON c.id=t.customer_id LEFT JOIN %s.suppliers s ON s.id=t.supplier_id%s`, r.schema, r.schema, r.schema, where), args...).Scan(&total); err != nil {
+		return pagination.Result[entity.Transaction]{}, err
+	}
+	paging := fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, params.PerPage, params.Offset())
+	items, err := r.transactions(ctx, where, order, paging, args)
 	if err != nil {
 		return pagination.Result[entity.Transaction]{}, err
 	}
 	return pagination.NewResult(items, params, total), nil
 }
 
-func (r *CooperativeRepository) transactions(ctx context.Context, kind string, page *pagination.Params) ([]entity.Transaction, error) {
-	args := []any{}
-	filter := ""
-	if kind == "SALE" || kind == "PURCHASE" {
-		filter = "WHERE t.transaction_type=$1"
-		args = append(args, kind)
+func transactionQueryParts(kind string, query listquery.Params) (string, string, []any, error) {
+	clauses := make([]string, 0, 6)
+	args := make([]any, 0, 6)
+	add := func(clause string, value any) {
+		args = append(args, value)
+		clauses = append(clauses, fmt.Sprintf(clause, len(args)))
 	}
-	paging := ""
-	if page != nil {
-		paging = fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
-		args = append(args, page.PerPage, page.Offset())
+	if kind != "" {
+		if kind != "SALE" && kind != "PURCHASE" {
+			return "", "", nil, errors.New("invalid transaction type filter")
+		}
+		add("t.transaction_type=$%d", kind)
 	}
-	rows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT t.id,t.invoice_no,t.transaction_type,t.transaction_date,t.customer_id,c.name,t.supplier_id,s.name,t.payment_method_id,p.name,t.payment_status,t.grand_total,t.paid_amount,t.amount_received,t.change_amount,t.status,t.void_reason,t.notes FROM %s.transactions t LEFT JOIN %s.customers c ON c.id=t.customer_id LEFT JOIN %s.suppliers s ON s.id=t.supplier_id LEFT JOIN %s.payment_methods p ON p.id=t.payment_method_id %s ORDER BY t.transaction_date DESC,t.id DESC%s`, r.schema, r.schema, r.schema, r.schema, filter, paging), args...)
+	if query.Search != "" {
+		args = append(args, query.Search)
+		position := len(args)
+		clauses = append(clauses, fmt.Sprintf("(t.invoice_no ILIKE '%%' || $%d || '%%' OR COALESCE(c.name,'') ILIKE '%%' || $%d || '%%' OR COALESCE(s.name,'') ILIKE '%%' || $%d || '%%' OR COALESCE(t.notes,'') ILIKE '%%' || $%d || '%%')", position, position, position, position))
+	}
+	for _, key := range []string{"payment_status", "status"} {
+		if value := query.Values[key]; value != "" {
+			allowed := map[string]map[string]bool{
+				"payment_status": {"PAID": true, "UNPAID": true, "PARTIAL": true},
+				"status":         {"ACTIVE": true, "VOID": true},
+			}
+			if !allowed[key][value] {
+				return "", "", nil, errors.New("invalid " + key + " filter")
+			}
+			add("t."+key+"=$%d", value)
+		}
+	}
+	for _, key := range []string{"date_from", "date_to"} {
+		if value := query.Values[key]; value != "" {
+			if _, err := time.Parse("2006-01-02", value); err != nil {
+				return "", "", nil, errors.New("invalid " + key + " filter")
+			}
+			operator := ">="
+			if key == "date_to" {
+				operator = "<="
+			}
+			add("(t.transaction_date AT TIME ZONE 'Asia/Jakarta')::date"+operator+"$%d::date", value)
+		}
+	}
+	if from, to := query.Values["date_from"], query.Values["date_to"]; from != "" && to != "" && from > to {
+		return "", "", nil, errors.New("invalid transaction date range")
+	}
+	sortColumns := map[string]string{
+		"id": "t.id", "invoice_no": "t.invoice_no", "transaction_date": "t.transaction_date",
+		"grand_total": "t.grand_total", "payment_status": "t.payment_status", "status": "t.status",
+	}
+	column, ok := sortColumns[query.Sort]
+	if !ok || (query.Order != "asc" && query.Order != "desc") {
+		return "", "", nil, errors.New("invalid transaction sorting")
+	}
+	where := ""
+	if len(clauses) > 0 {
+		where = " WHERE " + strings.Join(clauses, " AND ")
+	}
+	return where, " ORDER BY " + column + " " + query.Order + ", t.id " + query.Order, args, nil
+}
+
+func (r *CooperativeRepository) transactions(ctx context.Context, where, order, paging string, args []any) ([]entity.Transaction, error) {
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT t.id,t.invoice_no,t.transaction_type,t.transaction_date,t.customer_id,c.name,t.supplier_id,s.name,t.payment_method_id,p.name,t.payment_status,t.grand_total,t.paid_amount,t.amount_received,t.change_amount,t.status,t.void_reason,t.notes FROM %s.transactions t LEFT JOIN %s.customers c ON c.id=t.customer_id LEFT JOIN %s.suppliers s ON s.id=t.supplier_id LEFT JOIN %s.payment_methods p ON p.id=t.payment_method_id%s%s%s`, r.schema, r.schema, r.schema, r.schema, where, order, paging), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -630,23 +695,96 @@ func (r *CooperativeRepository) VoidTransaction(ctx context.Context, id int64, r
 }
 
 func (r *CooperativeRepository) Debts(ctx context.Context) ([]entity.Debt, error) {
-	return r.debts(ctx, "", nil)
+	return r.DebtsQuery(ctx, defaultDebtQuery())
 }
 
 func (r *CooperativeRepository) DebtsPage(ctx context.Context, params pagination.Params) (pagination.Result[entity.Debt], error) {
-	var total int64
-	if err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.debts`, r.schema)).Scan(&total); err != nil {
+	return r.DebtsPageQuery(ctx, params, defaultDebtQuery())
+}
+
+func defaultDebtQuery() listquery.Params {
+	return listquery.Params{Sort: "created_at", Order: "desc", Values: map[string]string{}}
+}
+
+func (r *CooperativeRepository) DebtsQuery(ctx context.Context, query listquery.Params) ([]entity.Debt, error) {
+	where, order, args, err := debtQueryParts(query)
+	if err != nil {
+		return nil, err
+	}
+	return r.debts(ctx, where, order, "", args)
+}
+
+func (r *CooperativeRepository) DebtsPageQuery(ctx context.Context, params pagination.Params, query listquery.Params) (pagination.Result[entity.Debt], error) {
+	where, order, args, err := debtQueryParts(query)
+	if err != nil {
 		return pagination.Result[entity.Debt]{}, err
 	}
-	debts, err := r.debts(ctx, " LIMIT $1 OFFSET $2", []any{params.PerPage, params.Offset()})
+	var total int64
+	if err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.debts d JOIN %s.transactions t ON t.id=d.transaction_id JOIN %s.customers c ON c.id=d.customer_id%s`, r.schema, r.schema, r.schema, where), args...).Scan(&total); err != nil {
+		return pagination.Result[entity.Debt]{}, err
+	}
+	paging := fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, params.PerPage, params.Offset())
+	debts, err := r.debts(ctx, where, order, paging, args)
 	if err != nil {
 		return pagination.Result[entity.Debt]{}, err
 	}
 	return pagination.NewResult(debts, params, total), nil
 }
 
-func (r *CooperativeRepository) debts(ctx context.Context, suffix string, args []any) ([]entity.Debt, error) {
-	rows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT d.id,d.transaction_id,t.invoice_no,d.customer_id,c.name,d.original_amount,d.remaining_amount,d.status,d.created_at FROM %s.debts d JOIN %s.transactions t ON t.id=d.transaction_id JOIN %s.customers c ON c.id=d.customer_id ORDER BY d.created_at DESC,d.id DESC%s`, r.schema, r.schema, r.schema, suffix), args...)
+func debtQueryParts(query listquery.Params) (string, string, []any, error) {
+	clauses := make([]string, 0, 4)
+	args := make([]any, 0, 4)
+	add := func(clause string, value any) {
+		args = append(args, value)
+		clauses = append(clauses, fmt.Sprintf(clause, len(args)))
+	}
+	if query.Search != "" {
+		args = append(args, query.Search)
+		position := len(args)
+		clauses = append(clauses, fmt.Sprintf("(t.invoice_no ILIKE '%%' || $%d || '%%' OR c.name ILIKE '%%' || $%d || '%%')", position, position))
+	}
+	if status := query.Values["status"]; status != "" {
+		if status != "OPEN" && status != "PAID" {
+			return "", "", nil, errors.New("invalid debt status filter")
+		}
+		add("d.status=$%d", status)
+	}
+	var minRemaining, maxRemaining int64
+	var hasMin, hasMax bool
+	if value, set, err := query.NonNegativeInt("min_remaining"); err != nil {
+		return "", "", nil, err
+	} else if set {
+		minRemaining, hasMin = value, true
+		add("d.remaining_amount>=$%d", value)
+	}
+	if value, set, err := query.NonNegativeInt("max_remaining"); err != nil {
+		return "", "", nil, err
+	} else if set {
+		maxRemaining, hasMax = value, true
+		add("d.remaining_amount<=$%d", value)
+	}
+	if hasMin && hasMax && minRemaining > maxRemaining {
+		return "", "", nil, errors.New("invalid remaining amount range")
+	}
+	sortColumns := map[string]string{
+		"id": "d.id", "invoice_no": "t.invoice_no", "customer_name": "c.name",
+		"original_amount": "d.original_amount", "remaining_amount": "d.remaining_amount",
+		"status": "d.status", "created_at": "d.created_at",
+	}
+	column, ok := sortColumns[query.Sort]
+	if !ok || (query.Order != "asc" && query.Order != "desc") {
+		return "", "", nil, errors.New("invalid debt sorting")
+	}
+	where := ""
+	if len(clauses) > 0 {
+		where = " WHERE " + strings.Join(clauses, " AND ")
+	}
+	return where, " ORDER BY " + column + " " + query.Order + ", d.id " + query.Order, args, nil
+}
+
+func (r *CooperativeRepository) debts(ctx context.Context, where, order, paging string, args []any) ([]entity.Debt, error) {
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT d.id,d.transaction_id,t.invoice_no,d.customer_id,c.name,d.original_amount,d.remaining_amount,d.status,d.created_at FROM %s.debts d JOIN %s.transactions t ON t.id=d.transaction_id JOIN %s.customers c ON c.id=d.customer_id%s%s%s`, r.schema, r.schema, r.schema, where, order, paging), args...)
 	if err != nil {
 		return nil, err
 	}

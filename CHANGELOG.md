@@ -37,6 +37,8 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 - Pencarian dan sorting supplier pada kode, nama, telepon, alamat, serta kolom operasional.
 - Pencarian, filter tipe, dan sorting pelanggan dengan urutan default pelanggan umum tetap dipertahankan.
 - Pencarian nama/email, filter role/status aktif, dan sorting untuk daftar pengguna admin.
+- Pencarian histori transaksi, filter tipe/status/tanggal, dan sorting dengan batas tanggal berbasis zona waktu Asia/Jakarta.
+- Pencarian invoice/pelanggan, filter status/rentang sisa, dan sorting untuk daftar piutang.
 
 ### Changed
 

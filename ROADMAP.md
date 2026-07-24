@@ -22,10 +22,11 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 - Pagination frontend responsif untuk tabel operasional
 - Penghapusan frontend Vue/Vite lama setelah migrasi Nuxt
 - Seed generator untuk data demo yang dapat direproduksi
+- Pencarian, sorting, dan filtering API untuk barang, supplier, pelanggan, transaksi, piutang, dan pengguna
 
 ## 🟨 In Progress
 
-- Pencarian, sorting, dan filtering di API (barang, supplier, pelanggan, dan pengguna selesai; transaksi serta piutang menyusul)
+- Belum ada item aktif; prioritas berikutnya dipilih dari bagian Planned
 
 ## ⬜ Planned
 
