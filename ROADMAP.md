@@ -34,10 +34,21 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 ## ⬜ Planned
 
 - Pemulihan data yang menggunakan soft delete
+- Bulk soft delete dan bulk restore
+- Bulk payment/settlement untuk beberapa piutang
+- Bulk reset stok terpilih ke 0 dengan konfirmasi
+- Snackbar undo untuk soft delete
+- Audit log untuk seluruh bulk action
 - Benchmark dan performance baseline
 - Docker dan deployment configuration
 - Redis untuk caching atau session support
 - Background job atau queue untuk proses berat
+
+### Catatan fitur bulk
+
+- Bulk payment/settlement wajib membuat histori pembayaran untuk setiap piutang dan tidak boleh hanya mengubah status menjadi `PAID`.
+- Bulk reset stok wajib dicatat sebagai stock movement untuk setiap barang agar perubahan stok tetap dapat ditelusuri.
+- Seluruh bulk action harus memiliki konfirmasi, hasil yang jelas untuk setiap item, dan audit log yang mengidentifikasi pengguna serta target perubahan.
 
 ## Not Planned Yet
 
