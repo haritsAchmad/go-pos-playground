@@ -25,11 +25,10 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 
 ## 🟨 In Progress
 
-- Belum ada item aktif; prioritas berikutnya dipilih dari bagian Planned
+- Pencarian, sorting, dan filtering di API (barang, supplier, pelanggan, dan pengguna selesai; transaksi serta piutang menyusul)
 
 ## ⬜ Planned
 
-- Pencarian, sorting, dan filtering di API
 - Refresh token rotation atau session server-side
 - Audit log aktivitas pengguna
 - Pemulihan data yang menggunakan soft delete

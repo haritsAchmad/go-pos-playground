@@ -9,6 +9,7 @@ import (
 
 	"go-pos-playground/internal/auth"
 	"go-pos-playground/internal/middleware"
+	"go-pos-playground/internal/pkg/listquery"
 	"go-pos-playground/internal/pkg/response"
 	"go-pos-playground/internal/repository"
 	"golang.org/x/crypto/bcrypt"
@@ -89,12 +90,31 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandler) Users(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		query, err := listquery.Parse(r.URL.Query(), listquery.Config{
+			DefaultSort: "id",
+			Sorts: map[string]bool{
+				"id": true, "name": true, "email": true, "role": true, "active": true,
+			},
+			Filters: map[string]bool{"role": true, "active": true},
+		})
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if role := query.Values["role"]; role != "" && role != "admin" && role != "cashier" && role != "viewer" {
+			response.Error(w, http.StatusBadRequest, "role must be admin, cashier, or viewer")
+			return
+		}
+		if active := query.Values["active"]; active != "" && active != "true" && active != "false" {
+			response.Error(w, http.StatusBadRequest, "active must be true or false")
+			return
+		}
 		params, paginated, ok := paginationParams(w, r)
 		if !ok {
 			return
 		}
 		if paginated {
-			users, err := h.repo.ListUsersPage(r.Context(), params)
+			users, err := h.repo.ListUsersPageQuery(r.Context(), params, query)
 			if err != nil {
 				response.Error(w, 500, "failed to get users")
 				return
@@ -102,7 +122,7 @@ func (h *AuthHandler) Users(w http.ResponseWriter, r *http.Request) {
 			response.Success(w, 200, "users fetched successfully", users)
 			return
 		}
-		users, err := h.repo.ListUsers(r.Context())
+		users, err := h.repo.ListUsersQuery(r.Context(), query)
 		if err != nil {
 			response.Error(w, 500, "failed to get users")
 			return

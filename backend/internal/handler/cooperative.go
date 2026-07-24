@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go-pos-playground/internal/entity"
+	"go-pos-playground/internal/pkg/listquery"
 	"go-pos-playground/internal/pkg/response"
 	"go-pos-playground/internal/repository"
 )
@@ -97,12 +98,27 @@ func (h *CooperativeHandler) Masters(w http.ResponseWriter, r *http.Request) {
 
 func (h *CooperativeHandler) Customers(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		query, err := listquery.Parse(r.URL.Query(), listquery.Config{
+			DefaultSort: "name",
+			Sorts: map[string]bool{
+				"id": true, "code": true, "name": true, "customer_type": true, "created_at": true,
+			},
+			Filters: map[string]bool{"customer_type": true},
+		})
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if customerType := query.Values["customer_type"]; customerType != "" && customerType != "MEMBER" && customerType != "NON_MEMBER" {
+			response.Error(w, http.StatusBadRequest, "customer_type must be MEMBER or NON_MEMBER")
+			return
+		}
 		params, paginated, ok := paginationParams(w, r)
 		if !ok {
 			return
 		}
 		if paginated {
-			data, err := h.repo.CustomersPage(r.Context(), params)
+			data, err := h.repo.CustomersPageQuery(r.Context(), params, query)
 			if err != nil {
 				response.Error(w, 500, "failed to get customers")
 				return
@@ -110,7 +126,7 @@ func (h *CooperativeHandler) Customers(w http.ResponseWriter, r *http.Request) {
 			response.Success(w, 200, "customers fetched", data)
 			return
 		}
-		data, err := h.repo.Customers(r.Context())
+		data, err := h.repo.CustomersQuery(r.Context(), query)
 		if err != nil {
 			response.Error(w, 500, "failed to get customers")
 			return

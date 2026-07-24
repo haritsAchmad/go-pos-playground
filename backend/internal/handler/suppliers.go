@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	dto "go-pos-playground/internal/dto/suppliers"
+	"go-pos-playground/internal/pkg/listquery"
 	"go-pos-playground/internal/pkg/response"
 	"go-pos-playground/internal/repository"
 )
@@ -21,12 +22,23 @@ func NewSupplierHandler(supplierRepo *repository.SupplierRepository) *SupplierHa
 }
 
 func (h *SupplierHandler) FindAll(w http.ResponseWriter, r *http.Request) {
+	query, err := listquery.Parse(r.URL.Query(), listquery.Config{
+		DefaultSort: "id",
+		Sorts: map[string]bool{
+			"id": true, "code": true, "name": true,
+			"phone": true, "created_at": true, "updated_at": true,
+		},
+	})
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	params, paginated, ok := paginationParams(w, r)
 	if !ok {
 		return
 	}
 	if paginated {
-		suppliers, err := h.supplierRepo.FindPage(r.Context(), params)
+		suppliers, err := h.supplierRepo.FindPageQuery(r.Context(), params, query)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, "failed to get suppliers")
 			return
@@ -34,7 +46,7 @@ func (h *SupplierHandler) FindAll(w http.ResponseWriter, r *http.Request) {
 		response.Success(w, http.StatusOK, "suppliers fetched successfully", suppliers)
 		return
 	}
-	suppliers, err := h.supplierRepo.FindAll(r.Context())
+	suppliers, err := h.supplierRepo.FindAllQuery(r.Context(), query)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to get suppliers")
 		return

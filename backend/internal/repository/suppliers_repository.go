@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	dto "go-pos-playground/internal/dto/suppliers"
 	"go-pos-playground/internal/entity"
+	"go-pos-playground/internal/pkg/listquery"
 	"go-pos-playground/internal/pkg/pagination"
 
 	"github.com/jackc/pgx/v5"
@@ -28,35 +30,74 @@ func NewSupplierRepository(db *pgxpool.Pool, schema string) *SupplierRepository 
 }
 
 func (r *SupplierRepository) FindAll(ctx context.Context) ([]entity.Suppliers, error) {
-	return r.find(ctx, "", nil)
+	return r.FindAllQuery(ctx, defaultSupplierQuery())
 }
 
 func (r *SupplierRepository) FindPage(ctx context.Context, params pagination.Params) (pagination.Result[entity.Suppliers], error) {
-	var total int64
-	if err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.suppliers WHERE deleted_at IS NULL`, r.schema)).Scan(&total); err != nil {
+	return r.FindPageQuery(ctx, params, defaultSupplierQuery())
+}
+
+func defaultSupplierQuery() listquery.Params {
+	return listquery.Params{Sort: "id", Order: "asc", Values: map[string]string{}}
+}
+
+func (r *SupplierRepository) FindAllQuery(ctx context.Context, query listquery.Params) ([]entity.Suppliers, error) {
+	where, order, args, err := supplierQueryParts(query)
+	if err != nil {
+		return nil, err
+	}
+	return r.find(ctx, where, order, "", args)
+}
+
+func (r *SupplierRepository) FindPageQuery(ctx context.Context, params pagination.Params, query listquery.Params) (pagination.Result[entity.Suppliers], error) {
+	where, order, args, err := supplierQueryParts(query)
+	if err != nil {
 		return pagination.Result[entity.Suppliers]{}, err
 	}
-	suppliers, err := r.find(ctx, " LIMIT $1 OFFSET $2", []any{params.PerPage, params.Offset()})
+	var total int64
+	if err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.suppliers s%s`, r.schema, where), args...).Scan(&total); err != nil {
+		return pagination.Result[entity.Suppliers]{}, err
+	}
+	paging := fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, params.PerPage, params.Offset())
+	suppliers, err := r.find(ctx, where, order, paging, args)
 	if err != nil {
 		return pagination.Result[entity.Suppliers]{}, err
 	}
 	return pagination.NewResult(suppliers, params, total), nil
 }
 
-func (r *SupplierRepository) find(ctx context.Context, suffix string, args []any) ([]entity.Suppliers, error) {
+func supplierQueryParts(query listquery.Params) (string, string, []any, error) {
+	clauses := []string{"s.deleted_at IS NULL"}
+	args := make([]any, 0, 1)
+	if query.Search != "" {
+		args = append(args, query.Search)
+		clauses = append(clauses, "(s.code ILIKE '%' || $1 || '%' OR s.name ILIKE '%' || $1 || '%' OR s.phone ILIKE '%' || $1 || '%' OR s.address ILIKE '%' || $1 || '%')")
+	}
+	sortColumns := map[string]string{
+		"id": "s.id", "code": "s.code", "name": "s.name", "phone": "s.phone",
+		"created_at": "s.created_at", "updated_at": "s.updated_at",
+	}
+	column, ok := sortColumns[query.Sort]
+	if !ok || (query.Order != "asc" && query.Order != "desc") {
+		return "", "", nil, errors.New("invalid supplier sorting")
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), " ORDER BY " + column + " " + query.Order + ", s.id " + query.Order, args, nil
+}
+
+func (r *SupplierRepository) find(ctx context.Context, where, order, paging string, args []any) ([]entity.Suppliers, error) {
 	query := fmt.Sprintf(`
 		SELECT
-			id,
-			code,
-			name,
-			phone,
-			address,
-			created_at,
-			updated_at
-		FROM %s.suppliers
-		WHERE deleted_at IS NULL
-		ORDER BY id ASC%s
-	`, r.schema, suffix)
+			s.id,
+			s.code,
+			s.name,
+			s.phone,
+			s.address,
+			s.created_at,
+			s.updated_at
+		FROM %s.suppliers s
+		%s%s%s
+	`, r.schema, where, order, paging)
 
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {

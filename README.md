@@ -254,6 +254,32 @@ go run ./cmd/seed `
 
 Pengembangan berikutnya berfokus pada pencarian, sorting, dan filtering API, session management, observability, serta deployment. Status lengkap dan prioritas terkini tersedia di [ROADMAP.md](ROADMAP.md).
 
+### Query katalog barang
+
+`GET /items` mendukung pencarian case-insensitive pada nama, SKU, dan deskripsi melalui
+`search`. Hasil dapat difilter dengan `supplier_id`, `category_id`, `brand_id`,
+`unit_id`, `min_stock`, dan `max_stock`, lalu diurutkan dengan `sort` dan `order`.
+Nilai `sort` yang tersedia adalah `id`, `sku`, `name`, `stock`, `price`, `cost`,
+`created_at`, dan `updated_at`; `order` menerima `asc` atau `desc`.
+
+Semua parameter tersebut dapat digabungkan dengan pagination opt-in, misalnya:
+
+```text
+GET /items?search=kopi&category_id=2&min_stock=1&sort=stock&order=desc&page=1&per_page=20
+```
+
+Endpoint `GET /suppliers` menerima `search` pada kode, nama, telepon, dan alamat.
+Sorting tersedia untuk `id`, `code`, `name`, `phone`, `created_at`, dan `updated_at`.
+
+Endpoint `GET /customers` menerima `search` pada kode, nama, telepon, dan alamat,
+serta filter `customer_type=MEMBER|NON_MEMBER`. Sorting tersedia untuk `id`, `code`,
+`name`, `customer_type`, dan `created_at`. Parameter `search`, `sort`, `order`, dan
+filter tersebut juga dapat digabungkan dengan `page` dan `per_page`.
+
+Endpoint admin `GET /users` menerima `search` pada nama dan email, filter
+`role=admin|cashier|viewer`, filter `active=true|false`, serta sorting berdasarkan
+`id`, `name`, `email`, `role`, atau `active`.
+
 ## AI-assisted development
 
 Project ini dirancang, diarahkan, diuji, dan direview oleh Harits Achmad Fauzan. ChatGPT dan Codex digunakan sebagai alat bantu untuk brainstorming, diskusi arsitektur, review kode, refactoring, dan implementasi. Keputusan akhir, validasi fitur, smoke testing, dan persetujuan perubahan tetap dilakukan oleh pemilik project.

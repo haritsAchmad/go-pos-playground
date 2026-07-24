@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go-pos-playground/internal/entity"
+	"go-pos-playground/internal/pkg/listquery"
 	"go-pos-playground/internal/pkg/pagination"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -54,23 +55,80 @@ func (r *AuthRepository) SeedAdmin(ctx context.Context, name, email, password st
 }
 
 func (r *AuthRepository) ListUsers(ctx context.Context) ([]entity.User, error) {
-	return r.listUsers(ctx, "", nil)
+	return r.ListUsersQuery(ctx, defaultUserQuery())
 }
 
 func (r *AuthRepository) ListUsersPage(ctx context.Context, params pagination.Params) (pagination.Result[entity.User], error) {
-	var total int64
-	if err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.users`, r.schema)).Scan(&total); err != nil {
+	return r.ListUsersPageQuery(ctx, params, defaultUserQuery())
+}
+
+func defaultUserQuery() listquery.Params {
+	return listquery.Params{Sort: "id", Order: "asc", Values: map[string]string{}}
+}
+
+func (r *AuthRepository) ListUsersQuery(ctx context.Context, query listquery.Params) ([]entity.User, error) {
+	where, order, args, err := userQueryParts(query)
+	if err != nil {
+		return nil, err
+	}
+	return r.listUsers(ctx, where, order, "", args)
+}
+
+func (r *AuthRepository) ListUsersPageQuery(ctx context.Context, params pagination.Params, query listquery.Params) (pagination.Result[entity.User], error) {
+	where, order, args, err := userQueryParts(query)
+	if err != nil {
 		return pagination.Result[entity.User]{}, err
 	}
-	users, err := r.listUsers(ctx, " LIMIT $1 OFFSET $2", []any{params.PerPage, params.Offset()})
+	var total int64
+	if err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.users u%s`, r.schema, where), args...).Scan(&total); err != nil {
+		return pagination.Result[entity.User]{}, err
+	}
+	paging := fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, params.PerPage, params.Offset())
+	users, err := r.listUsers(ctx, where, order, paging, args)
 	if err != nil {
 		return pagination.Result[entity.User]{}, err
 	}
 	return pagination.NewResult(users, params, total), nil
 }
 
-func (r *AuthRepository) listUsers(ctx context.Context, suffix string, args []any) ([]entity.User, error) {
-	rows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT id,name,email,role,active FROM %s.users ORDER BY id%s`, r.schema, suffix), args...)
+func userQueryParts(query listquery.Params) (string, string, []any, error) {
+	clauses := make([]string, 0, 3)
+	args := make([]any, 0, 3)
+	if query.Search != "" {
+		args = append(args, query.Search)
+		clauses = append(clauses, "(u.name ILIKE '%' || $1 || '%' OR u.email ILIKE '%' || $1 || '%')")
+	}
+	if role := query.Values["role"]; role != "" {
+		if role != "admin" && role != "cashier" && role != "viewer" {
+			return "", "", nil, errors.New("invalid user role filter")
+		}
+		args = append(args, role)
+		clauses = append(clauses, fmt.Sprintf("u.role=$%d", len(args)))
+	}
+	if active := query.Values["active"]; active != "" {
+		if active != "true" && active != "false" {
+			return "", "", nil, errors.New("invalid active filter")
+		}
+		args = append(args, active == "true")
+		clauses = append(clauses, fmt.Sprintf("u.active=$%d", len(args)))
+	}
+	sortColumns := map[string]string{
+		"id": "u.id", "name": "u.name", "email": "u.email", "role": "u.role", "active": "u.active",
+	}
+	column, ok := sortColumns[query.Sort]
+	if !ok || (query.Order != "asc" && query.Order != "desc") {
+		return "", "", nil, errors.New("invalid user sorting")
+	}
+	where := ""
+	if len(clauses) > 0 {
+		where = " WHERE " + strings.Join(clauses, " AND ")
+	}
+	return where, " ORDER BY " + column + " " + query.Order + ", u.id " + query.Order, args, nil
+}
+
+func (r *AuthRepository) listUsers(ctx context.Context, where, order, paging string, args []any) ([]entity.User, error) {
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT u.id,u.name,u.email,u.role,u.active FROM %s.users u%s%s%s`, r.schema, where, order, paging), args...)
 	if err != nil {
 		return nil, err
 	}

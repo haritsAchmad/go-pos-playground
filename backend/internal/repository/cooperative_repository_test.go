@@ -1,10 +1,39 @@
 package repository
 
 import (
+	"strings"
 	"testing"
 
 	"go-pos-playground/internal/entity"
+	"go-pos-playground/internal/pkg/listquery"
 )
+
+func TestCustomerQueryParts(t *testing.T) {
+	where, order, args, err := customerQueryParts(listquery.Params{
+		Search: "budi",
+		Sort:   "name",
+		Order:  "asc",
+		Values: map[string]string{"customer_type": "MEMBER"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(where, "c.name ILIKE") || !strings.Contains(where, "c.customer_type=$2") {
+		t.Fatalf("unexpected where: %q", where)
+	}
+	if !strings.Contains(order, "CASE WHEN c.code='UMUM'") || len(args) != 2 || args[1] != "MEMBER" {
+		t.Fatalf("unexpected result: order=%q args=%#v", order, args)
+	}
+}
+
+func TestCustomerQueryPartsRejectsInvalidFilter(t *testing.T) {
+	_, _, _, err := customerQueryParts(listquery.Params{
+		Sort: "name", Order: "asc", Values: map[string]string{"customer_type": "VIP"},
+	})
+	if err == nil {
+		t.Fatal("expected invalid customer type error")
+	}
+}
 
 func TestMergeTransactionItems(t *testing.T) {
 	items, err := mergeTransactionItems([]entity.TransactionLine{

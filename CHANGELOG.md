@@ -32,6 +32,11 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 - Unit test parser pagination dan integration test PostgreSQL untuk batas halaman serta kombinasi filter tipe transaksi.
 - Kontrol pagination frontend reusable untuk barang, pelanggan, supplier, histori, piutang, dan pengguna.
 - Unit test pagination frontend untuk slicing, batas halaman, perubahan filter, dan penyesuaian jumlah data.
+- Query katalog barang untuk pencarian nama/SKU/deskripsi, filter relasi dan rentang stok, serta sorting aman yang dapat digabungkan dengan pagination.
+- Parser query list reusable dengan validasi panjang pencarian, allowlist sorting, arah urutan, dan nilai filter numerik.
+- Pencarian dan sorting supplier pada kode, nama, telepon, alamat, serta kolom operasional.
+- Pencarian, filter tipe, dan sorting pelanggan dengan urutan default pelanggan umum tetap dipertahankan.
+- Pencarian nama/email, filter role/status aktif, dan sorting untuk daftar pengguna admin.
 
 ### Changed
 

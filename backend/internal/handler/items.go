@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	dto "go-pos-playground/internal/dto/items"
+	"go-pos-playground/internal/pkg/listquery"
 	"go-pos-playground/internal/pkg/response"
 	"go-pos-playground/internal/repository"
 
@@ -27,12 +28,47 @@ func NewItemHandler(itemRepo *repository.ItemRepository) *ItemHandler {
 }
 
 func (h *ItemHandler) FindAll(w http.ResponseWriter, r *http.Request) {
+	query, err := listquery.Parse(r.URL.Query(), listquery.Config{
+		DefaultSort: "id",
+		Sorts: map[string]bool{
+			"id": true, "sku": true, "name": true, "stock": true,
+			"price": true, "cost": true, "created_at": true, "updated_at": true,
+		},
+		Filters: map[string]bool{
+			"supplier_id": true, "category_id": true, "brand_id": true,
+			"unit_id": true, "min_stock": true, "max_stock": true,
+		},
+	})
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	for _, key := range []string{"supplier_id", "category_id", "brand_id", "unit_id"} {
+		if _, _, err := query.PositiveInt(key); err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	minStock, hasMinStock, err := query.NonNegativeInt("min_stock")
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	maxStock, hasMaxStock, err := query.NonNegativeInt("max_stock")
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if hasMinStock && hasMaxStock && minStock > maxStock {
+		response.Error(w, http.StatusBadRequest, "min_stock must not exceed max_stock")
+		return
+	}
 	params, paginated, ok := paginationParams(w, r)
 	if !ok {
 		return
 	}
 	if paginated {
-		items, err := h.itemRepo.FindPage(r.Context(), params)
+		items, err := h.itemRepo.FindPageQuery(r.Context(), params, query)
 		if err != nil {
 			response.Error(w, http.StatusInternalServerError, "failed to get items")
 			return
@@ -40,7 +76,7 @@ func (h *ItemHandler) FindAll(w http.ResponseWriter, r *http.Request) {
 		response.Success(w, http.StatusOK, "items fetched successfully", items)
 		return
 	}
-	items, err := h.itemRepo.FindAll(r.Context())
+	items, err := h.itemRepo.FindAllQuery(r.Context(), query)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to get items")
 		return

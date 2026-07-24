@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go-pos-playground/internal/entity"
+	"go-pos-playground/internal/pkg/listquery"
 	"go-pos-playground/internal/pkg/pagination"
 
 	"github.com/jackc/pgx/v5"
@@ -78,23 +79,75 @@ func (r *CooperativeRepository) DeleteMaster(ctx context.Context, table string, 
 }
 
 func (r *CooperativeRepository) Customers(ctx context.Context) ([]entity.Customer, error) {
-	return r.customers(ctx, "", nil)
+	return r.CustomersQuery(ctx, defaultCustomerQuery())
 }
 
 func (r *CooperativeRepository) CustomersPage(ctx context.Context, params pagination.Params) (pagination.Result[entity.Customer], error) {
-	var total int64
-	if err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.customers WHERE deleted_at IS NULL`, r.schema)).Scan(&total); err != nil {
+	return r.CustomersPageQuery(ctx, params, defaultCustomerQuery())
+}
+
+func defaultCustomerQuery() listquery.Params {
+	return listquery.Params{Sort: "name", Order: "asc", Values: map[string]string{}}
+}
+
+func (r *CooperativeRepository) CustomersQuery(ctx context.Context, query listquery.Params) ([]entity.Customer, error) {
+	where, order, args, err := customerQueryParts(query)
+	if err != nil {
+		return nil, err
+	}
+	return r.customers(ctx, where, order, "", args)
+}
+
+func (r *CooperativeRepository) CustomersPageQuery(ctx context.Context, params pagination.Params, query listquery.Params) (pagination.Result[entity.Customer], error) {
+	where, order, args, err := customerQueryParts(query)
+	if err != nil {
 		return pagination.Result[entity.Customer]{}, err
 	}
-	customers, err := r.customers(ctx, " LIMIT $1 OFFSET $2", []any{params.PerPage, params.Offset()})
+	var total int64
+	if err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.customers c%s`, r.schema, where), args...).Scan(&total); err != nil {
+		return pagination.Result[entity.Customer]{}, err
+	}
+	paging := fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, params.PerPage, params.Offset())
+	customers, err := r.customers(ctx, where, order, paging, args)
 	if err != nil {
 		return pagination.Result[entity.Customer]{}, err
 	}
 	return pagination.NewResult(customers, params, total), nil
 }
 
-func (r *CooperativeRepository) customers(ctx context.Context, suffix string, args []any) ([]entity.Customer, error) {
-	rows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT id, code, name, customer_type, phone, address, created_at FROM %s.customers WHERE deleted_at IS NULL ORDER BY CASE WHEN code='UMUM' THEN 0 ELSE 1 END, name%s`, r.schema, suffix), args...)
+func customerQueryParts(query listquery.Params) (string, string, []any, error) {
+	clauses := []string{"c.deleted_at IS NULL"}
+	args := make([]any, 0, 2)
+	if query.Search != "" {
+		args = append(args, query.Search)
+		clauses = append(clauses, "(c.code ILIKE '%' || $1 || '%' OR c.name ILIKE '%' || $1 || '%' OR c.phone ILIKE '%' || $1 || '%' OR c.address ILIKE '%' || $1 || '%')")
+	}
+	if customerType := query.Values["customer_type"]; customerType != "" {
+		if customerType != "MEMBER" && customerType != "NON_MEMBER" {
+			return "", "", nil, errors.New("invalid customer type filter")
+		}
+		args = append(args, customerType)
+		clauses = append(clauses, fmt.Sprintf("c.customer_type=$%d", len(args)))
+	}
+	sortColumns := map[string]string{
+		"id": "c.id", "code": "c.code", "name": "c.name",
+		"customer_type": "c.customer_type", "created_at": "c.created_at",
+	}
+	column, ok := sortColumns[query.Sort]
+	if !ok || (query.Order != "asc" && query.Order != "desc") {
+		return "", "", nil, errors.New("invalid customer sorting")
+	}
+	// The protected walk-in customer remains first for the default ordering.
+	prefix := ""
+	if query.Sort == "name" && query.Order == "asc" {
+		prefix = "CASE WHEN c.code='UMUM' THEN 0 ELSE 1 END, "
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), " ORDER BY " + prefix + column + " " + query.Order + ", c.id " + query.Order, args, nil
+}
+
+func (r *CooperativeRepository) customers(ctx context.Context, where, order, paging string, args []any) ([]entity.Customer, error) {
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT c.id, c.code, c.name, c.customer_type, c.phone, c.address, c.created_at FROM %s.customers c%s%s%s`, r.schema, where, order, paging), args...)
 	if err != nil {
 		return nil, err
 	}
