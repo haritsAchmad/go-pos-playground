@@ -18,11 +18,15 @@ type Customer struct {
 }
 
 type TransactionLine struct {
-	ItemID    int64  `json:"item_id" validate:"required,gt=0"`
-	ItemName  string `json:"item_name,omitempty"`
-	Quantity  int    `json:"quantity" validate:"required,gt=0"`
-	UnitPrice int64  `json:"unit_price" validate:"gte=0"`
-	Subtotal  int64  `json:"subtotal,omitempty"`
+	ItemID           int64  `json:"item_id" validate:"required,gt=0"`
+	ItemName         string `json:"item_name,omitempty"`
+	UnitID           *int64 `json:"unit_id"`
+	UnitName         string `json:"unit_name,omitempty"`
+	Quantity         int    `json:"quantity" validate:"required,gt=0"`
+	ConversionFactor int    `json:"conversion_factor,omitempty"`
+	BaseQuantity     int    `json:"base_quantity,omitempty"`
+	UnitPrice        int64  `json:"unit_price" validate:"gte=0"`
+	Subtotal         int64  `json:"subtotal,omitempty"`
 }
 
 type CreateTransactionRequest struct {

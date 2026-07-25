@@ -99,6 +99,13 @@ func (h *ItemHandler) Create(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusBadRequest, "kode/SKU dan nama wajib diisi; stok serta harga tidak boleh negatif")
 		return
 	}
+	if req.UnitID == nil || req.BaseUnitID == nil || req.UnitsPerPackage < 1 ||
+		(req.UnitsPerPackage == 1 && *req.UnitID != *req.BaseUnitID) ||
+		(req.UnitsPerPackage > 1 && *req.UnitID == *req.BaseUnitID) ||
+		(req.AllowRetail && req.UnitsPerPackage == 1) {
+		response.Error(w, http.StatusBadRequest, "satuan kemasan/dasar dan isi per kemasan tidak valid")
+		return
+	}
 
 	err = h.itemRepo.Create(r.Context(), req)
 	if err != nil {
@@ -158,6 +165,13 @@ func (h *ItemHandler) Update(w http.ResponseWriter, r *http.Request) {
 	err = validate.Struct(req)
 	if err != nil {
 		response.Error(w, http.StatusBadRequest, "kode/SKU dan nama wajib diisi; stok serta harga tidak boleh negatif")
+		return
+	}
+	if req.UnitID == nil || req.BaseUnitID == nil || req.UnitsPerPackage < 1 ||
+		(req.UnitsPerPackage == 1 && *req.UnitID != *req.BaseUnitID) ||
+		(req.UnitsPerPackage > 1 && *req.UnitID == *req.BaseUnitID) ||
+		(req.AllowRetail && req.UnitsPerPackage == 1) {
+		response.Error(w, http.StatusBadRequest, "satuan kemasan/dasar dan isi per kemasan tidak valid")
 		return
 	}
 

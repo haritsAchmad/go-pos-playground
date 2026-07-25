@@ -116,10 +116,10 @@ func itemQueryParts(query listquery.Params) (string, string, []any, error) {
 
 func (r *ItemRepository) find(ctx context.Context, where, order, paging string, args []any) ([]entity.Items, error) {
 	query := fmt.Sprintf(`
-		SELECT i.id,i.supplier_id,COALESCE(i.sku,''),i.category_id,c.name,i.brand_id,b.name,i.unit_id,u.name,i.name,i.description,i.stock,i.price,i.cost,i.created_at,i.updated_at
-		FROM %s.items i LEFT JOIN %s.categories c ON c.id=i.category_id LEFT JOIN %s.brands b ON b.id=i.brand_id LEFT JOIN %s.units u ON u.id=i.unit_id
+		SELECT i.id,i.supplier_id,COALESCE(i.sku,''),i.category_id,c.name,i.brand_id,b.name,i.unit_id,u.name,i.base_unit_id,bu.name,i.units_per_package,i.allow_retail,i.name,i.description,i.stock,i.price,i.cost,i.retail_price,i.retail_cost,i.created_at,i.updated_at
+		FROM %s.items i LEFT JOIN %s.categories c ON c.id=i.category_id LEFT JOIN %s.brands b ON b.id=i.brand_id LEFT JOIN %s.units u ON u.id=i.unit_id LEFT JOIN %s.units bu ON bu.id=i.base_unit_id
 		%s%s%s
-	`, r.schema, r.schema, r.schema, r.schema, where, order, paging)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, where, order, paging)
 
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
@@ -136,11 +136,14 @@ func (r *ItemRepository) find(ctx context.Context, where, order, paging string, 
 			&item.ID,
 			&item.SupplierID,
 			&item.SKU, &item.CategoryID, &item.CategoryName, &item.BrandID, &item.BrandName, &item.UnitID, &item.UnitName,
+			&item.BaseUnitID, &item.BaseUnitName, &item.UnitsPerPackage, &item.AllowRetail,
 			&item.Name,
 			&item.Description,
 			&item.Stock,
 			&item.Price,
 			&item.Cost,
+			&item.RetailPrice,
+			&item.RetailCost,
 			&item.CreatedAt,
 			&item.UpdatedAt,
 		); err != nil {
@@ -170,7 +173,7 @@ func (r *ItemRepository) Create(
 			description,
 			stock,
 			price
-			,cost,sku,category_id,brand_id,unit_id
+			,cost,sku,category_id,brand_id,unit_id,base_unit_id,units_per_package,allow_retail,retail_price,retail_cost
 		)
 		VALUES
 		(
@@ -178,7 +181,7 @@ func (r *ItemRepository) Create(
 			$2,
 			$3,
 			$4,
-			$5,$6,$7,$8,$9,$10
+			$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
 		)
 	`, r.schema)
 
@@ -191,6 +194,7 @@ func (r *ItemRepository) Create(
 		req.Stock,
 		req.Price,
 		req.Cost, req.SKU, req.CategoryID, req.BrandID, req.UnitID,
+		req.BaseUnitID, req.UnitsPerPackage, req.AllowRetail, req.RetailPrice, req.RetailCost,
 	)
 
 	return err
@@ -198,10 +202,10 @@ func (r *ItemRepository) Create(
 
 func (r *ItemRepository) FindByID(ctx context.Context, id int) (*entity.Items, error) {
 	query := fmt.Sprintf(`
-		SELECT i.id,i.supplier_id,COALESCE(i.sku,''),i.category_id,c.name,i.brand_id,b.name,i.unit_id,u.name,i.name,i.description,i.stock,i.price,i.cost,i.created_at,i.updated_at
-		FROM %s.items i LEFT JOIN %s.categories c ON c.id=i.category_id LEFT JOIN %s.brands b ON b.id=i.brand_id LEFT JOIN %s.units u ON u.id=i.unit_id
+		SELECT i.id,i.supplier_id,COALESCE(i.sku,''),i.category_id,c.name,i.brand_id,b.name,i.unit_id,u.name,i.base_unit_id,bu.name,i.units_per_package,i.allow_retail,i.name,i.description,i.stock,i.price,i.cost,i.retail_price,i.retail_cost,i.created_at,i.updated_at
+		FROM %s.items i LEFT JOIN %s.categories c ON c.id=i.category_id LEFT JOIN %s.brands b ON b.id=i.brand_id LEFT JOIN %s.units u ON u.id=i.unit_id LEFT JOIN %s.units bu ON bu.id=i.base_unit_id
 		WHERE i.id=$1 AND i.deleted_at IS NULL
-	`, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema)
 
 	var item entity.Items
 
@@ -209,11 +213,14 @@ func (r *ItemRepository) FindByID(ctx context.Context, id int) (*entity.Items, e
 		&item.ID,
 		&item.SupplierID,
 		&item.SKU, &item.CategoryID, &item.CategoryName, &item.BrandID, &item.BrandName, &item.UnitID, &item.UnitName,
+		&item.BaseUnitID, &item.BaseUnitName, &item.UnitsPerPackage, &item.AllowRetail,
 		&item.Name,
 		&item.Description,
 		&item.Stock,
 		&item.Price,
 		&item.Cost,
+		&item.RetailPrice,
+		&item.RetailCost,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
@@ -243,9 +250,10 @@ func (r *ItemRepository) Update(
 			stock = $4,
 			price = $5,
 			cost = $6, sku = $7, category_id = $8, brand_id = $9, unit_id = $10,
+			base_unit_id = $11, units_per_package = $12, allow_retail = $13, retail_price = $14, retail_cost = $15,
 			updated_at = NOW()
 		WHERE
-			id = $11
+			id = $16
 			AND deleted_at IS NULL
 	`, r.schema)
 
@@ -258,6 +266,7 @@ func (r *ItemRepository) Update(
 		req.Stock,
 		req.Price,
 		req.Cost, req.SKU, req.CategoryID, req.BrandID, req.UnitID,
+		req.BaseUnitID, req.UnitsPerPackage, req.AllowRetail, req.RetailPrice, req.RetailCost,
 		id,
 	)
 

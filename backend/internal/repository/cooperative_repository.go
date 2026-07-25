@@ -188,9 +188,14 @@ func (r *CooperativeRepository) DeleteCustomer(ctx context.Context, id int64) er
 // when the same item was accidentally entered more than once.
 func mergeTransactionItems(items []entity.TransactionLine) ([]entity.TransactionLine, error) {
 	merged := make([]entity.TransactionLine, 0, len(items))
-	positions := make(map[int64]int, len(items))
+	positions := make(map[string]int, len(items))
 	for _, line := range items {
-		if position, exists := positions[line.ItemID]; exists {
+		unitID := int64(0)
+		if line.UnitID != nil {
+			unitID = *line.UnitID
+		}
+		key := fmt.Sprintf("%d:%d", line.ItemID, unitID)
+		if position, exists := positions[key]; exists {
 			current := &merged[position]
 			if current.UnitPrice != 0 && line.UnitPrice != 0 && current.UnitPrice != line.UnitPrice {
 				return nil, fmt.Errorf("harga barang %d berbeda pada baris yang berulang", line.ItemID)
@@ -201,10 +206,72 @@ func mergeTransactionItems(items []entity.TransactionLine) ([]entity.Transaction
 			current.Quantity += line.Quantity
 			continue
 		}
-		positions[line.ItemID] = len(merged)
+		positions[key] = len(merged)
 		merged = append(merged, line)
 	}
 	return merged, nil
+}
+
+func (r *CooperativeRepository) resolveTransactionLine(ctx context.Context, tx pgx.Tx, kind string, line *entity.TransactionLine) error {
+	var itemName, packageName string
+	var baseName *string
+	var packageUnitID int64
+	var baseUnitID *int64
+	var factor int
+	var allowRetail bool
+	var packagePrice, packageCost, retailPrice, retailCost int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT i.name,i.unit_id,u.name,i.base_unit_id,bu.name,i.units_per_package,i.allow_retail,i.price,i.cost,i.retail_price,i.retail_cost
+		FROM %s.items i
+		JOIN %s.units u ON u.id=i.unit_id
+		LEFT JOIN %s.units bu ON bu.id=i.base_unit_id
+		WHERE i.id=$1 AND i.deleted_at IS NULL
+	`, r.schema, r.schema, r.schema), line.ItemID).Scan(
+		&itemName, &packageUnitID, &packageName, &baseUnitID, &baseName, &factor, &allowRetail,
+		&packagePrice, &packageCost, &retailPrice, &retailCost,
+	)
+	if err != nil {
+		return errors.New("barang tidak ditemukan")
+	}
+	selectedUnitID := packageUnitID
+	if line.UnitID != nil {
+		selectedUnitID = *line.UnitID
+	}
+	line.ItemName = itemName
+	switch {
+	case selectedUnitID == packageUnitID:
+		line.UnitID = &packageUnitID
+		line.UnitName = packageName
+		line.ConversionFactor = factor
+		if line.UnitPrice == 0 {
+			if kind == "PURCHASE" {
+				line.UnitPrice = packageCost
+			} else {
+				line.UnitPrice = packagePrice
+			}
+		}
+	case baseUnitID != nil && selectedUnitID == *baseUnitID && (allowRetail || factor == 1):
+		line.UnitID = baseUnitID
+		if baseName != nil {
+			line.UnitName = *baseName
+		}
+		line.ConversionFactor = 1
+		if line.UnitPrice == 0 {
+			if kind == "PURCHASE" {
+				line.UnitPrice = retailCost
+			} else {
+				line.UnitPrice = retailPrice
+			}
+		}
+	default:
+		return fmt.Errorf("satuan transaksi untuk %s tidak tersedia", itemName)
+	}
+	line.BaseQuantity = line.Quantity * line.ConversionFactor
+	if line.BaseQuantity <= 0 {
+		return errors.New("jumlah satuan dasar transaksi tidak valid")
+	}
+	line.Subtotal = int64(line.Quantity) * line.UnitPrice
+	return nil
 }
 
 func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entity.CreateTransactionRequest) (entity.Transaction, error) {
@@ -235,16 +302,9 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 				return entity.Transaction{}, errors.New("barang tidak terdaftar pada supplier yang dipilih")
 			}
 		}
-		if req.Items[i].UnitPrice == 0 {
-			column := "price"
-			if req.TransactionType == "PURCHASE" {
-				column = "cost"
-			}
-			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM %s.items WHERE id=$1 AND deleted_at IS NULL`, column, r.schema), req.Items[i].ItemID).Scan(&req.Items[i].UnitPrice); err != nil {
-				return entity.Transaction{}, err
-			}
+		if err := r.resolveTransactionLine(ctx, tx, req.TransactionType, &req.Items[i]); err != nil {
+			return entity.Transaction{}, err
 		}
-		req.Items[i].Subtotal = int64(req.Items[i].Quantity) * req.Items[i].UnitPrice
 		total += req.Items[i].Subtotal
 	}
 	if total <= 0 {
@@ -287,14 +347,14 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT stock,name FROM %s.items WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, r.schema), line.ItemID).Scan(&stock, &itemName); err != nil {
 			return entity.Transaction{}, err
 		}
-		change := line.Quantity
+		change := line.BaseQuantity
 		if req.TransactionType == "SALE" {
 			change = -change
 			if stock+change < 0 {
-				return entity.Transaction{}, fmt.Errorf("stok %s tidak cukup: tersedia %d, diminta %d", itemName, stock, line.Quantity)
+				return entity.Transaction{}, fmt.Errorf("stok %s tidak cukup: tersedia %d satuan dasar, diminta %d", itemName, stock, line.BaseQuantity)
 			}
 		}
-		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.transaction_items (transaction_id,item_id,quantity,unit_price,subtotal) VALUES ($1,$2,$3,$4,$5)`, r.schema), id, line.ItemID, line.Quantity, line.UnitPrice, line.Subtotal)
+		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.transaction_items (transaction_id,item_id,unit_id,unit_name,quantity,conversion_factor,base_quantity,unit_price,subtotal) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, r.schema), id, line.ItemID, line.UnitID, line.UnitName, line.Quantity, line.ConversionFactor, line.BaseQuantity, line.UnitPrice, line.Subtotal)
 		if err != nil {
 			return entity.Transaction{}, err
 		}
@@ -441,7 +501,7 @@ func (r *CooperativeRepository) transactions(ctx context.Context, where, order, 
 		indexByID[result[i].ID] = i
 		result[i].Items = make([]entity.TransactionLine, 0)
 	}
-	itemRows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT ti.transaction_id,ti.item_id,i.name,ti.quantity,ti.unit_price,ti.subtotal FROM %s.transaction_items ti JOIN %s.items i ON i.id=ti.item_id WHERE ti.transaction_id=ANY($1) ORDER BY ti.transaction_id,ti.id`, r.schema, r.schema), ids)
+	itemRows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT ti.transaction_id,ti.item_id,i.name,ti.unit_id,ti.unit_name,ti.quantity,ti.conversion_factor,ti.base_quantity,ti.unit_price,ti.subtotal FROM %s.transaction_items ti JOIN %s.items i ON i.id=ti.item_id WHERE ti.transaction_id=ANY($1) ORDER BY ti.transaction_id,ti.id`, r.schema, r.schema), ids)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +509,7 @@ func (r *CooperativeRepository) transactions(ctx context.Context, where, order, 
 	for itemRows.Next() {
 		var transactionID int64
 		var line entity.TransactionLine
-		if err := itemRows.Scan(&transactionID, &line.ItemID, &line.ItemName, &line.Quantity, &line.UnitPrice, &line.Subtotal); err != nil {
+		if err := itemRows.Scan(&transactionID, &line.ItemID, &line.ItemName, &line.UnitID, &line.UnitName, &line.Quantity, &line.ConversionFactor, &line.BaseQuantity, &line.UnitPrice, &line.Subtotal); err != nil {
 			return nil, err
 		}
 		if index, ok := indexByID[transactionID]; ok {
@@ -500,7 +560,7 @@ func (r *CooperativeRepository) UpdateTransaction(ctx context.Context, id int64,
 		return entity.Transaction{}, errors.New("supplier wajib dipilih")
 	}
 
-	oldRows, err := tx.Query(ctx, fmt.Sprintf(`SELECT item_id,quantity FROM %s.transaction_items WHERE transaction_id=$1`, r.schema), id)
+	oldRows, err := tx.Query(ctx, fmt.Sprintf(`SELECT item_id,base_quantity FROM %s.transaction_items WHERE transaction_id=$1`, r.schema), id)
 	if err != nil {
 		return entity.Transaction{}, err
 	}
@@ -547,16 +607,9 @@ func (r *CooperativeRepository) UpdateTransaction(ctx context.Context, id int64,
 				return entity.Transaction{}, errors.New("barang tidak terdaftar pada supplier yang dipilih")
 			}
 		}
-		if line.UnitPrice == 0 {
-			column := "price"
-			if kind == "PURCHASE" {
-				column = "cost"
-			}
-			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM %s.items WHERE id=$1 AND deleted_at IS NULL`, column, r.schema), line.ItemID).Scan(&line.UnitPrice); err != nil {
-				return entity.Transaction{}, errors.New("barang tidak ditemukan")
-			}
+		if err := r.resolveTransactionLine(ctx, tx, kind, line); err != nil {
+			return entity.Transaction{}, err
 		}
-		line.Subtotal = int64(line.Quantity) * line.UnitPrice
 		total += line.Subtotal
 	}
 	if total <= 0 {
@@ -602,14 +655,14 @@ func (r *CooperativeRepository) UpdateTransaction(ctx context.Context, id int64,
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT stock,name FROM %s.items WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, r.schema), line.ItemID).Scan(&stock, &itemName); err != nil {
 			return entity.Transaction{}, errors.New("barang tidak ditemukan")
 		}
-		change := line.Quantity
+		change := line.BaseQuantity
 		if kind == "SALE" {
-			change = -line.Quantity
+			change = -line.BaseQuantity
 		}
 		if stock+change < 0 {
-			return entity.Transaction{}, fmt.Errorf("stok %s tidak cukup: tersedia %d, diminta %d", itemName, stock, line.Quantity)
+			return entity.Transaction{}, fmt.Errorf("stok %s tidak cukup: tersedia %d satuan dasar, diminta %d", itemName, stock, line.BaseQuantity)
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.transaction_items(transaction_id,item_id,quantity,unit_price,subtotal) VALUES($1,$2,$3,$4,$5)`, r.schema), id, line.ItemID, line.Quantity, line.UnitPrice, line.Subtotal); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.transaction_items(transaction_id,item_id,unit_id,unit_name,quantity,conversion_factor,base_quantity,unit_price,subtotal) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, r.schema), id, line.ItemID, line.UnitID, line.UnitName, line.Quantity, line.ConversionFactor, line.BaseQuantity, line.UnitPrice, line.Subtotal); err != nil {
 			return entity.Transaction{}, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.items SET stock=stock+$1,updated_at=NOW() WHERE id=$2`, r.schema), change, line.ItemID); err != nil {
@@ -647,7 +700,7 @@ func (r *CooperativeRepository) VoidTransaction(ctx context.Context, id int64, r
 	if payments > 0 {
 		return errors.New("transaksi tidak dapat dibatalkan karena piutang sudah pernah dibayar")
 	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT item_id,quantity FROM %s.transaction_items WHERE transaction_id=$1`, r.schema), id)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT item_id,base_quantity FROM %s.transaction_items WHERE transaction_id=$1`, r.schema), id)
 	if err != nil {
 		return err
 	}

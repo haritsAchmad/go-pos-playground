@@ -126,3 +126,17 @@ func TestMergeTransactionItemsRejectsDifferentPrices(t *testing.T) {
 		t.Fatal("expected an error for repeated item with different prices")
 	}
 }
+
+func TestMergeTransactionItemsKeepsDifferentUnitsSeparate(t *testing.T) {
+	boxID, pcsID := int64(3), int64(1)
+	items, err := mergeTransactionItems([]entity.TransactionLine{
+		{ItemID: 10, UnitID: &boxID, Quantity: 1, UnitPrice: 12000},
+		{ItemID: 10, UnitID: &pcsID, Quantity: 2, UnitPrice: 1200},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("got %d lines, want package and retail lines kept separately", len(items))
+	}
+}

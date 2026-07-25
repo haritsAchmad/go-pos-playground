@@ -34,10 +34,31 @@ Pastikan Go, Node.js, npm, dan PostgreSQL tersedia. Buat database `pos_playgroun
 Copy-Item backend/.env.example backend/.env
 ```
 
+`backend/.env.example` adalah template aman yang boleh masuk Git. `backend/.env`
+adalah konfigurasi lokal dan **tidak boleh di-commit**. Setelah menyalin template,
+ganti semua nilai `change-me-*`. Buat JWT secret acak minimal 32 karakter, misalnya:
+
+```powershell
+$bytes = New-Object byte[] 48
+[Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+[Convert]::ToBase64String($bytes)
+```
+
+Tempel hasilnya ke `JWT_SECRET` di `backend/.env`. Sebelum commit, verifikasi:
+
+```powershell
+git check-ignore -v backend/.env
+git status
+```
+
+`backend/.env` harus dilaporkan sebagai ignored dan tidak boleh muncul di
+`git status`. Jangan menaruh credential asli di `.env.example`, README, issue,
+chat, screenshot, atau file export.
+
 Konfigurasi penting:
 
 ```env
-APP_PORT=8080
+APP_PORT=8082
 
 DB_HOST=localhost
 DB_PORT=5432
@@ -60,6 +81,29 @@ INITIAL_ADMIN_PASSWORD=ganti-dengan-password-kuat
 `INITIAL_ADMIN_*` hanya digunakan ketika tabel `users` masih kosong. Setelah akun admin pertama berhasil dibuat, hapus `INITIAL_ADMIN_PASSWORD` dari `.env`.
 
 Database schema dan tabel dibuat otomatis ketika backend dijalankan. Jika memakai nama database/schema versi lama, migrasikan terlebih dahulu ke `pos_playground` dan `go_pos_playground`.
+
+### Satuan kemasan dan eceran
+
+Stok disimpan dalam satuan dasar terkecil. Contoh barang `1 Box = 12 Pcs` dengan
+stok awal `5 Box` harus dimasukkan sebagai `60` pada `stock`/“Stok awal (satuan
+dasar)”. Aktifkan “boleh dibeli dan dijual eceran” agar transaksi dapat memilih
+Box atau Pcs. Pembelian 2 Box menambah 24 Pcs dan penjualan 3 Pcs mengurangi
+3 Pcs dari sumber stok yang sama.
+
+Harga beli/jual kemasan dan eceran disimpan terpisah agar pembulatan atau harga
+promo per box tidak mengubah harga per pcs. Riwayat transaksi menyimpan nama
+satuan dan faktor konversi saat transaksi dibuat, sehingga perubahan isi kemasan
+di masa depan tidak mengubah transaksi lama.
+
+Export barang menghasilkan kolom `package_unit`, `base_unit`,
+`units_per_package`, `allow_retail`, `stock_display`,
+`available_retail_quantity`, `package_cost`, `package_price`, `retail_cost`, dan
+`retail_price`. `stock_display` berisi tampilan seperti `14 Pack + 10 Pcs`,
+sedangkan `available_retail_quantity` berisi total satuan eceran numerik yang
+dipakai sebagai stok saat import. Import menerima format itu
+serta tetap menerima format lama (`unit`, `stock`, `cost`, `price`) sebagai
+barang satu-satuan dengan faktor `1`. Nilai `allow_retail` dapat diisi `yes`,
+`true`, `1`, atau `ya`.
 
 ## Menjalankan aplikasi
 

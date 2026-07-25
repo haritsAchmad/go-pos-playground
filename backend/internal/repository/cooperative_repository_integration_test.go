@@ -110,6 +110,8 @@ type transactionFixture struct {
 	cashID     int64
 	debtID     int64
 	itemID     int64
+	pcsUnitID  int64
+	boxUnitID  int64
 }
 
 func newTransactionFixture(t *testing.T) *transactionFixture {
@@ -161,8 +163,10 @@ func newTransactionFixture(t *testing.T) *transactionFixture {
 	mustScan(fmt.Sprintf(`SELECT id FROM %s.customers WHERE code='UMUM'`, q), nil, &f.customerID)
 	mustScan(fmt.Sprintf(`SELECT id FROM %s.payment_methods WHERE name='Tunai'`, q), nil, &f.cashID)
 	mustScan(fmt.Sprintf(`SELECT id FROM %s.payment_methods WHERE name='Piutang'`, q), nil, &f.debtID)
+	mustScan(fmt.Sprintf(`SELECT id FROM %s.units WHERE name='Pcs'`, q), nil, &f.pcsUnitID)
+	mustScan(fmt.Sprintf(`SELECT id FROM %s.units WHERE name='Box'`, q), nil, &f.boxUnitID)
 	mustScan(fmt.Sprintf(`INSERT INTO %s.suppliers(code,name,phone,address) VALUES('SUP-TEST','Supplier Test','','') RETURNING id`, q), nil, &f.supplierID)
-	mustScan(fmt.Sprintf(`INSERT INTO %s.items(supplier_id,sku,name,stock,price,cost) VALUES($1,'ITEM-TEST','Barang Test',10,1000,500) RETURNING id`, q), []any{f.supplierID}, &f.itemID)
+	mustScan(fmt.Sprintf(`INSERT INTO %s.items(supplier_id,sku,name,unit_id,base_unit_id,units_per_package,stock,price,cost,retail_price,retail_cost) VALUES($1,'ITEM-TEST','Barang Test',$2,$2,1,10,1000,500,1000,500) RETURNING id`, q), []any{f.supplierID, f.pcsUnitID}, &f.itemID)
 	return f
 }
 
@@ -193,6 +197,23 @@ func (f *transactionFixture) stock(t *testing.T) int {
 }
 
 func TestTransactionStockIntegration(t *testing.T) {
+	t.Run("package and retail sale share base stock", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		q := pgx.Identifier{f.schema}.Sanitize()
+		if _, err := f.db.Exec(f.ctx, fmt.Sprintf(`UPDATE %s.items SET unit_id=$1,base_unit_id=$2,units_per_package=12,allow_retail=TRUE,stock=24,price=10000,cost=8000,retail_price=1000,retail_cost=700 WHERE id=$3`, q), f.boxUnitID, f.pcsUnitID, f.itemID); err != nil {
+			t.Fatal(err)
+		}
+		request := f.request("SALE", 1, 11000, false)
+		request.Items[0].UnitID = &f.boxUnitID
+		request.Items = append(request.Items, entity.TransactionLine{ItemID: f.itemID, UnitID: &f.pcsUnitID, Quantity: 1})
+		if _, err := f.repository.CreateTransaction(f.ctx, request); err != nil {
+			t.Fatalf("create mixed-unit sale: %v", err)
+		}
+		if got := f.stock(t); got != 11 {
+			t.Fatalf("stock = %d, want 11 base units", got)
+		}
+	})
+
 	t.Run("sale decreases stock", func(t *testing.T) {
 		f := newTransactionFixture(t)
 		if _, err := f.repository.CreateTransaction(f.ctx, f.request("SALE", 3, 3000, false)); err != nil {
