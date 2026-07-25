@@ -5,4 +5,7 @@ frontend/dist/
 frontend/.nuxt/
 frontend/.nuxt-verify/
 frontend/.output/
-backend/.env
+# Local environment files can contain credentials.
+.env
+.env.*
+!.env.example
