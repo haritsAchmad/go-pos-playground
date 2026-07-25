@@ -1,10 +1,70 @@
+import { getSessionRefreshAction, getTokenExpiry } from '~/utils/session'
+
+// One shared promise prevents concurrent dashboard requests from refreshing the JWT repeatedly.
+let refreshInFlight: Promise<void> | null = null
+
 export function useKoperasiApi() {
   const baseURL = useRuntimeConfig().public.apiBase
+  const token = useCookie<string | null>('pos_access_token', { sameSite: 'strict' })
+  const lastActivity = useState<number>('session-last-activity', () => 0)
+
+  // The HttpOnly refresh cookie can rotate an expired access token without exposing
+  // long-lived credentials to browser JavaScript.
+  const refreshIfNeeded = async () => {
+    if (!token.value) return
+    const refreshAction = getSessionRefreshAction(getTokenExpiry(token.value))
+    if (refreshAction === 'valid') return
+    if (!refreshInFlight) {
+      refreshInFlight = (async () => {
+        const payload = await $fetch<{ data: { access_token: string } }>('/auth/refresh', {
+          baseURL,
+          method: 'POST',
+          credentials: 'include',
+        })
+        token.value = payload.data.access_token
+      })().finally(() => { refreshInFlight = null })
+    }
+    try {
+      await refreshInFlight
+    } catch (error) {
+      token.value = null
+      if (import.meta.client) await navigateTo('/login')
+      throw error
+    }
+  }
+
   const request = async <T>(path: string, options: Record<string, unknown> = {}) => {
-    const payload = await $fetch<{ success: boolean; message: string; data: T }>(path, { baseURL, ...options })
-    return payload.data
+    const isPublicRequest = path === '/auth/login' || path === '/auth/refresh' || path === '/auth/logout'
+    if (!isPublicRequest && token.value) {
+      // Protected API calls represent real activity such as navigation, CRUD, or report loading.
+      lastActivity.value = Date.now()
+      await refreshIfNeeded()
+    }
+    const headers: Record<string, string> = {}
+    if (token.value) headers.Authorization = `Bearer ${token.value}`
+    try {
+      const payload = await $fetch<{ success: boolean; message: string; data: T }>(path, { baseURL, headers, credentials: 'include', ...options })
+      return payload.data
+    } catch (error: any) {
+      // A rejected token is never retried indefinitely; clear it and require a fresh login.
+      if (!isPublicRequest && (error?.statusCode === 401 || error?.response?.status === 401)) {
+        token.value = null
+        if (import.meta.client) await navigateTo('/login')
+      }
+      throw error
+    }
   }
   return {
+    token,
+    refreshIfNeeded,
+    login: (email: string, password: string) => request<any>('/auth/login', { method: 'POST', body: { email, password } }),
+    logout: () => request('/auth/logout', { method: 'POST' }),
+    me: () => request<any>('/auth/me'),
+    users: () => request<any[]>('/users'),
+    auditLogs: () => request<any[]>('/audit-logs'),
+    createUser: (body: any) => request('/users', { method: 'POST', body }),
+    updateUser: (id: number, body: any) => request(`/users/${id}`, { method: 'PUT', body }),
+    deleteUser: (id: number) => request(`/users/${id}`, { method: 'DELETE' }),
     dashboard: (year = new Date().getFullYear(), month = new Date().getMonth() + 1) => request<any>(`/dashboard?year=${year}&month=${month}`),
     items: () => request<any[]>('/items'),
     suppliers: () => request<any[]>('/suppliers'),

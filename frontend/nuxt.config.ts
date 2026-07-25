@@ -2,6 +2,8 @@ import { defineNuxtConfig } from 'nuxt/config'
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-05-15',
+  // Allows CI or a second terminal to verify the app while the dev server owns .nuxt.
+  buildDir: (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.NUXT_BUILD_DIR || '.nuxt',
   devtools: { enabled: true },
   app: {
     head: {
@@ -9,7 +11,7 @@ export default defineNuxtConfig({
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     },
   },
-  css: ['~/assets/css/main.css', '~/assets/css/improvements.css', '~/assets/css/payment.css'],
+  css: ['~/assets/css/main.css', '~/assets/css/improvements.css', '~/assets/css/payment.css', '~/assets/css/navigation.css'],
   runtimeConfig: {
     public: { apiBase: '/api' },
   },

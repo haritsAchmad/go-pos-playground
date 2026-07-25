@@ -1,5 +1,8 @@
 tmp/
+.pnpm-store/
 frontend/node_modules/
 frontend/dist/
 frontend/.nuxt/
+frontend/.nuxt-verify/
 frontend/.output/
+backend/.env

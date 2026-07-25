@@ -8,7 +8,14 @@ import (
 )
 
 type Config struct {
-	AppPort string
+	AppPort           string
+	JWTSecret         string
+	JWTIssuer         string
+	JWTExpiryMinutes  string
+	RefreshExpiryDays string
+	AdminName         string
+	AdminEmail        string
+	AdminPassword     string
 
 	DBHost     string
 	DBPort     string
@@ -28,7 +35,14 @@ func Load() Config {
 	}
 
 	return Config{
-		AppPort: os.Getenv("APP_PORT"),
+		AppPort:           os.Getenv("APP_PORT"),
+		JWTSecret:         os.Getenv("JWT_SECRET"),
+		JWTIssuer:         os.Getenv("JWT_ISSUER"),
+		JWTExpiryMinutes:  os.Getenv("JWT_EXPIRY_MINUTES"),
+		RefreshExpiryDays: os.Getenv("REFRESH_TOKEN_EXPIRY_DAYS"),
+		AdminName:         os.Getenv("INITIAL_ADMIN_NAME"),
+		AdminEmail:        os.Getenv("INITIAL_ADMIN_EMAIL"),
+		AdminPassword:     os.Getenv("INITIAL_ADMIN_PASSWORD"),
 
 		DBHost:     os.Getenv("DB_HOST"),
 		DBPort:     os.Getenv("DB_PORT"),
