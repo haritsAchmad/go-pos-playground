@@ -498,6 +498,22 @@ func TestStockMovementTraceIntegration(t *testing.T) {
 	}
 }
 
+func TestVersionedMigrationIntegration(t *testing.T) {
+	f := newTransactionFixture(t)
+	if err := database.Migrate(f.ctx, f.db, f.schema); err != nil {
+		t.Fatalf("rerun migrations: %v", err)
+	}
+	q := pgx.Identifier{f.schema}.Sanitize()
+	var count int
+	var name string
+	if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT COUNT(*),MAX(name) FROM %s.schema_migrations`, q)).Scan(&count, &name); err != nil {
+		t.Fatalf("read migration ledger: %v", err)
+	}
+	if count != 1 || name != "baseline schema" {
+		t.Fatalf("migration ledger = %d/%q, want 1/baseline schema", count, name)
+	}
+}
+
 func TestPaginationIntegration(t *testing.T) {
 	t.Run("customers include stable metadata and page boundaries", func(t *testing.T) {
 		f := newTransactionFixture(t)

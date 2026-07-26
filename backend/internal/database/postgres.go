@@ -34,14 +34,32 @@ func New(ctx context.Context, cfg config.Config) (*pgxpool.Pool, error) {
 	return db, nil
 }
 
-// Migrate creates the application schema and tables when they do not exist.
-// It is safe to run on every application startup.
+// Migrate applies each schema version exactly once. Version 1 adopts both new
+// and pre-existing databases because its statements are intentionally idempotent.
 func Migrate(ctx context.Context, db *pgxpool.Pool, schema string) error {
 	if schema == "" {
 		return fmt.Errorf("DB_SCHEMA must not be empty")
 	}
 
 	qualifiedSchema := pgx.Identifier{schema}.Sanitize()
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin database migration: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "go-pos-migration:"+schema); err != nil {
+		return fmt.Errorf("lock database migrations: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, qualifiedSchema)); err != nil {
+		return fmt.Errorf("create migration schema: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.schema_migrations (
+		version BIGINT PRIMARY KEY,
+		name VARCHAR(200) NOT NULL,
+		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`, qualifiedSchema)); err != nil {
+		return fmt.Errorf("create migration ledger: %w", err)
+	}
 	statements := []string{
 		fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, qualifiedSchema),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.users (
@@ -243,38 +261,60 @@ func Migrate(ctx context.Context, db *pgxpool.Pool, schema string) error {
 		fmt.Sprintf(`INSERT INTO %s.customers (code, name, customer_type) VALUES ('UMUM', 'Umum / Non Member', 'NON_MEMBER') ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name`, qualifiedSchema),
 	}
 
-	for _, statement := range statements {
-		if _, err := db.Exec(ctx, statement); err != nil {
-			return fmt.Errorf("run database migration: %w", err)
+	type migration struct {
+		version int64
+		name    string
+		up      func() error
+	}
+	migrations := []migration{{
+		version: 1,
+		name:    "baseline schema",
+		up: func() error {
+			for index, statement := range statements {
+				if _, err := tx.Exec(ctx, statement); err != nil {
+					return fmt.Errorf("statement %d: %w", index+1, err)
+				}
+			}
+			var hasSupplierForeignKey bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM pg_constraint c
+					JOIN pg_class t ON t.oid=c.conrelid
+					JOIN pg_namespace n ON n.oid=t.relnamespace
+					WHERE n.nspname=$1 AND t.relname='items' AND c.conname='items_supplier_id_fkey'
+				)
+			`, schema).Scan(&hasSupplierForeignKey); err != nil {
+				return fmt.Errorf("check items supplier foreign key: %w", err)
+			}
+			if !hasSupplierForeignKey {
+				if _, err := tx.Exec(ctx, fmt.Sprintf(
+					`ALTER TABLE %s.items ADD CONSTRAINT items_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES %s.suppliers(id)`,
+					qualifiedSchema, qualifiedSchema,
+				)); err != nil {
+					return fmt.Errorf("add items supplier foreign key: %w", err)
+				}
+			}
+			return nil
+		},
+	}}
+
+	for _, migration := range migrations {
+		var applied bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.schema_migrations WHERE version=$1)`, qualifiedSchema), migration.version).Scan(&applied); err != nil {
+			return fmt.Errorf("read database migration v%d: %w", migration.version, err)
+		}
+		if applied {
+			continue
+		}
+		if err := migration.up(); err != nil {
+			return fmt.Errorf("run database migration v%d (%s): %w", migration.version, migration.name, err)
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.schema_migrations(version,name) VALUES($1,$2)`, qualifiedSchema), migration.version, migration.name); err != nil {
+			return fmt.Errorf("record database migration v%d: %w", migration.version, err)
 		}
 	}
-
-	var hasSupplierForeignKey bool
-	err := db.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM pg_constraint c
-			JOIN pg_class t ON t.oid = c.conrelid
-			JOIN pg_namespace n ON n.oid = t.relnamespace
-			WHERE n.nspname = $1
-			AND t.relname = 'items'
-			AND c.conname = 'items_supplier_id_fkey'
-		)
-	`, schema).Scan(&hasSupplierForeignKey)
-	if err != nil {
-		return fmt.Errorf("check items supplier foreign key: %w", err)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit database migrations: %w", err)
 	}
-
-	if !hasSupplierForeignKey {
-		statement := fmt.Sprintf(
-			`ALTER TABLE %s.items ADD CONSTRAINT items_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES %s.suppliers(id)`,
-			qualifiedSchema,
-			qualifiedSchema,
-		)
-		if _, err := db.Exec(ctx, statement); err != nil {
-			return fmt.Errorf("add items supplier foreign key: %w", err)
-		}
-	}
-
 	return nil
 }
