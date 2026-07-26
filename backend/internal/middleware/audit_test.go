@@ -50,3 +50,14 @@ func TestAuditSkipsReads(t *testing.T) {
 		t.Fatalf("entries = %d, want 0", len(store.entries))
 	}
 }
+
+func TestAuditNamesPaymentReversal(t *testing.T) {
+	store := &auditStoreStub{}
+	next := Audit(store, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	request := httptest.NewRequest(http.MethodPost, "/debts/12/payments/34/reverse", nil)
+	ctx := context.WithValue(request.Context(), claimsKey, auth.Claims{Subject: "7"})
+	next(httptest.NewRecorder(), request.WithContext(ctx))
+	if len(store.entries) != 1 || store.entries[0].Action != "PAYMENT_REVERSAL" || store.entries[0].EntityID != "12" {
+		t.Fatalf("unexpected reversal audit entry: %+v", store.entries)
+	}
+}

@@ -361,6 +361,53 @@ func TestDebtPaymentIntegration(t *testing.T) {
 			t.Fatalf("state after overpayment: remaining=%d payments=%d", remaining, payments)
 		}
 	})
+	t.Run("reversal restores balances once and keeps its trace", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		transaction, err := f.repository.CreateTransaction(f.ctx, f.request("SALE", 3, 1000, true))
+		if err != nil {
+			t.Fatalf("create credit sale: %v", err)
+		}
+		q := pgx.Identifier{f.schema}.Sanitize()
+		var debtID int64
+		if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT id FROM %s.debts WHERE transaction_id=$1`, q), transaction.ID).Scan(&debtID); err != nil {
+			t.Fatalf("read debt: %v", err)
+		}
+		if err := f.repository.PayDebt(f.ctx, debtID, 500, "wrong amount"); err != nil {
+			t.Fatalf("pay debt: %v", err)
+		}
+		var paymentID int64
+		if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT id FROM %s.debt_payments WHERE debt_id=$1`, q), debtID).Scan(&paymentID); err != nil {
+			t.Fatalf("read payment: %v", err)
+		}
+		if err := f.repository.ReverseDebtPayment(f.ctx, debtID, paymentID, 7, "Admin Test", "nominal salah input"); err != nil {
+			t.Fatalf("reverse payment: %v", err)
+		}
+
+		var remaining, paid int64
+		var debtStatus, paymentStatus string
+		if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT d.remaining_amount,d.status,t.paid_amount,t.payment_status FROM %s.debts d JOIN %s.transactions t ON t.id=d.transaction_id WHERE d.id=$1`, q, q), debtID).Scan(&remaining, &debtStatus, &paid, &paymentStatus); err != nil {
+			t.Fatalf("read reversed balances: %v", err)
+		}
+		if remaining != 2000 || debtStatus != "OPEN" || paid != 1000 || paymentStatus != "PARTIAL" {
+			t.Fatalf("reversed state debt=%d/%s transaction=%d/%s", remaining, debtStatus, paid, paymentStatus)
+		}
+		history, err := f.repository.DebtPayments(f.ctx, debtID)
+		if err != nil {
+			t.Fatalf("read history: %v", err)
+		}
+		if len(history) != 1 || history[0].ReversedAt == nil || history[0].ReversalReason != "nominal salah input" || history[0].ReversedByName != "Admin Test" {
+			t.Fatalf("unexpected reversal trace: %+v", history)
+		}
+		if err := f.repository.ReverseDebtPayment(f.ctx, debtID, paymentID, 7, "Admin Test", "coba reversal lagi"); err == nil {
+			t.Fatal("expected duplicate reversal to be rejected")
+		}
+		if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT remaining_amount FROM %s.debts WHERE id=$1`, q), debtID).Scan(&remaining); err != nil {
+			t.Fatalf("read balance after duplicate reversal: %v", err)
+		}
+		if remaining != 2000 {
+			t.Fatalf("remaining after duplicate reversal = %d, want 2000", remaining)
+		}
+	})
 	t.Run("payment prevents editing and voiding credit sale", func(t *testing.T) {
 		f := newTransactionFixture(t)
 		transaction, err := f.repository.CreateTransaction(f.ctx, f.request("SALE", 3, 1000, true))

@@ -98,5 +98,7 @@ export function useKoperasiApi() {
     updateTransaction: (id: number, body: any) => request(`/transactions/${id}`, { method: 'PUT', body }),
     voidTransaction: (id: number, reason: string) => request(`/transactions/${id}/void`, { method: 'POST', body: { reason } }),
     payDebt: (id: number, body: any) => request(`/debts/${id}/payments`, { method: 'POST', body }),
+    debtPayments: (id: number) => request<any[]>(`/debts/${id}/payments`),
+    reverseDebtPayment: (debtID: number, paymentID: number, reason: string) => request(`/debts/${debtID}/payments/${paymentID}/reverse`, { method: 'POST', body: { reason } }),
   }
 }

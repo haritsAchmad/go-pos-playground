@@ -1,0 +1,9 @@
+.debt-actions{display:flex;align-items:flex-end;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.debt-payment-history{grid-column:2/-1;display:grid;gap:8px;padding:12px;border:1px solid #dce7df;border-radius:12px;background:#f7faf8}
+.debt-payment-history>article{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 12px;border-radius:9px;background:#fff}
+.debt-payment-history>article>div{display:grid;gap:2px}
+.debt-payment-history small{color:#66756b}
+.debt-payment-history .reversed{background:#f5f2f1;opacity:.82}
+.reversal-detail{text-align:right}
+.reversed-badge{justify-self:end;padding:3px 8px;border-radius:999px;background:#ead6d2;color:#8d2e27;font-size:.78rem;font-weight:700}
+@media(max-width:850px){.debt-actions{grid-column:2;justify-content:flex-start}.debt-payment-history{grid-column:1/-1}.debt-payment-history>article{align-items:flex-start;flex-direction:column}.reversal-detail{text-align:left}.reversed-badge{justify-self:start}}

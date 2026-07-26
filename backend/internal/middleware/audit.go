@@ -70,6 +70,9 @@ func Audit(store AuditStore, next http.HandlerFunc) http.HandlerFunc {
 }
 
 func auditAction(method, path string) string {
+	if strings.HasSuffix(path, "/reverse") {
+		return "PAYMENT_REVERSAL"
+	}
 	if strings.HasPrefix(path, "/bulk/") {
 		if strings.HasSuffix(path, "/restore") {
 			return "BULK_RESTORE"

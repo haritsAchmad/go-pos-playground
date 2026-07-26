@@ -1006,6 +1006,82 @@ func (r *CooperativeRepository) PayDebt(ctx context.Context, id, amount int64, n
 	return tx.Commit(ctx)
 }
 
+func (r *CooperativeRepository) DebtPayments(ctx context.Context, debtID int64) ([]entity.DebtPayment, error) {
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
+		SELECT id,debt_id,amount,payment_date,notes,reversed_at,reversal_reason,reversed_by_user_id,reversed_by_name
+		FROM %s.debt_payments WHERE debt_id=$1 ORDER BY payment_date DESC,id DESC
+	`, r.schema), debtID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]entity.DebtPayment, 0)
+	for rows.Next() {
+		var payment entity.DebtPayment
+		if err := rows.Scan(&payment.ID, &payment.DebtID, &payment.Amount, &payment.PaymentDate, &payment.Notes,
+			&payment.ReversedAt, &payment.ReversalReason, &payment.ReversedByUserID, &payment.ReversedByName); err != nil {
+			return nil, err
+		}
+		result = append(result, payment)
+	}
+	return result, rows.Err()
+}
+
+func (r *CooperativeRepository) ReverseDebtPayment(ctx context.Context, debtID, paymentID, userID int64, userName, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if len(reason) < 5 || len(reason) > 500 {
+		return errors.New("alasan koreksi wajib diisi 5-500 karakter")
+	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var amount, remaining, original, transactionID, paidAmount int64
+	var reversedAt *time.Time
+	var transactionStatus string
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT p.amount,p.reversed_at,d.remaining_amount,d.original_amount,d.transaction_id,t.paid_amount,t.status
+		FROM %s.debt_payments p
+		JOIN %s.debts d ON d.id=p.debt_id
+		JOIN %s.transactions t ON t.id=d.transaction_id
+		WHERE p.id=$1 AND p.debt_id=$2
+		FOR UPDATE OF p,d,t
+	`, r.schema, r.schema, r.schema), paymentID, debtID).Scan(
+		&amount, &reversedAt, &remaining, &original, &transactionID, &paidAmount, &transactionStatus,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("histori pembayaran tidak ditemukan")
+	}
+	if err != nil {
+		return err
+	}
+	if reversedAt != nil {
+		return errors.New("pembayaran sudah pernah dibatalkan")
+	}
+	if transactionStatus != "ACTIVE" || paidAmount < amount || remaining+amount > original {
+		return errors.New("pembayaran tidak dapat dibatalkan karena kondisi transaksi sudah berubah")
+	}
+	newPaid := paidAmount - amount
+	paymentStatus := "PARTIAL"
+	if newPaid == 0 {
+		paymentStatus = "UNPAID"
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.debt_payments SET reversed_at=NOW(),reversal_reason=$1,reversed_by_user_id=$2,reversed_by_name=$3
+		WHERE id=$4
+	`, r.schema), reason, userID, userName, paymentID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.debts SET remaining_amount=remaining_amount+$1,status='OPEN',updated_at=NOW() WHERE id=$2`, r.schema), amount, debtID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.transactions SET paid_amount=$1,payment_status=$2 WHERE id=$3`, r.schema), newPaid, paymentStatus, transactionID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (r *CooperativeRepository) Dashboard(ctx context.Context, year, month int) (entity.Dashboard, error) {
 	var v entity.Dashboard
 	v.Year = year

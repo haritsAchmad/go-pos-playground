@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go-pos-playground/internal/entity"
+	"go-pos-playground/internal/middleware"
 	"go-pos-playground/internal/pkg/listquery"
 	"go-pos-playground/internal/pkg/response"
 	"go-pos-playground/internal/repository"
@@ -457,4 +458,63 @@ func (h *CooperativeHandler) PayDebt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Success(w, 201, "debt payment recorded", nil)
+}
+
+func (h *CooperativeHandler) DebtPayments(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if r.Method != http.MethodGet || len(parts) != 3 || parts[0] != "debts" || parts[2] != "payments" {
+		response.Error(w, http.StatusNotFound, "payment history path not found")
+		return
+	}
+	debtID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid debt id")
+		return
+	}
+	payments, err := h.repo.DebtPayments(r.Context(), debtID)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to get payment history")
+		return
+	}
+	response.Success(w, http.StatusOK, "payment history fetched", payments)
+}
+
+func (h *CooperativeHandler) ReverseDebtPayment(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if r.Method != http.MethodPost || len(parts) != 5 || parts[0] != "debts" || parts[2] != "payments" || parts[4] != "reverse" {
+		response.Error(w, http.StatusNotFound, "payment reversal path not found")
+		return
+	}
+	debtID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid debt id")
+		return
+	}
+	paymentID, err := strconv.ParseInt(parts[3], 10, 64)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid payment id")
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		response.Error(w, http.StatusBadRequest, "invalid reversal data")
+		return
+	}
+	claims, ok := middleware.ClaimsFromContext(r.Context())
+	if !ok {
+		response.Error(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	userID, err := strconv.ParseInt(claims.Subject, 10, 64)
+	if err != nil {
+		response.Error(w, http.StatusUnauthorized, "invalid user identity")
+		return
+	}
+	if err := h.repo.ReverseDebtPayment(r.Context(), debtID, paymentID, userID, claims.Name, req.Reason); err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(w, http.StatusOK, "payment reversed", nil)
 }

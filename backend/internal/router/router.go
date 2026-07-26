@@ -167,7 +167,17 @@ func New(
 		protect(cooperativeHandler.VoidTransaction, "admin", "cashier")(w, r)
 	})
 	mux.HandleFunc("/debts", protect(cooperativeHandler.Debts, "admin", "cashier", "viewer"))
-	mux.HandleFunc("/debts/", protect(cooperativeHandler.PayDebt, "admin", "cashier"))
+	mux.HandleFunc("/debts/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			protect(cooperativeHandler.DebtPayments, "admin", "cashier", "viewer")(w, r)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/reverse") {
+			protect(cooperativeHandler.ReverseDebtPayment, "admin", "cashier")(w, r)
+			return
+		}
+		protect(cooperativeHandler.PayDebt, "admin", "cashier")(w, r)
+	})
 
 	return mux
 }

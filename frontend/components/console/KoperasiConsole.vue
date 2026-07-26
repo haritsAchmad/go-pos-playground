@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Swal from 'sweetalert2'
+import DebtRow from './DebtRow.vue'
 
 const route = useRoute()
 
@@ -40,7 +41,7 @@ const { dashboardYear,dashboardMonth,years,months,maxSales,monthlyReportTransact
 const { masterForm,loadMasters,openMaster,saveMaster,editMaster,deleteMaster,findOrCreateMaster } = useMasters({api,data,editing,submit,reloadItems:()=>loadItems()})
 const { itemForm,itemImport,filteredItems,loadItems,saveItem,openItem,editItem,cancelItem,removeItem,restoreDeletedItem } = useItems({api,data,filters,editing,modal,submit,softDelete,findOrCreateMaster})
 const { transactionForm,transactionContext,expandedTransaction,selectedReceipt,lineTotal,changeAmount,transactionItems,filteredTransactions,loadTransactions,voidTransaction,addLine,resetTransaction,editTransaction,saveTransaction,availableUnits,chooseUnit,chooseItem,stockLabel,printReceipt } = useTransactions({api,data,active,editing,filters,submit,reloadDashboard:()=>loadDashboard(),reloadItems:()=>loadItems(),reloadDebts:()=>loadDebts(),money,printDocument})
-const { debtPayments,loadDebts,payDebt } = useDebts({api,data,submit,reloadDashboard:()=>loadDashboard(),reloadTransactions:()=>loadTransactions()})
+const { debtPayments,paymentHistories,expandedDebt,loadDebts,payDebt,togglePaymentHistory,reversePayment } = useDebts({api,data,submit,reloadDashboard:()=>loadDashboard(),reloadTransactions:()=>loadTransactions()})
 const { customerForm,customerImport,filteredCustomers,loadCustomers,saveCustomer,openCustomer,editCustomer,closeCustomer,removeCustomer,restoreDeletedCustomer } = useCustomers({api,data,transactionForm,filters,editing,modal,submit,softDelete})
 const { supplierForm,supplierImport,filteredSuppliers,loadSuppliers,saveSupplier,openSupplier,editSupplier,closeSupplier,removeSupplier,restoreDeletedSupplier } = useSuppliers({api,data,filters,editing,modal,submit,softDelete})
 const { userForm,userModal,editingUser,loadUsers,openUser,closeUser,saveUser,removeUser } = useUsers({api,data,currentUser,submit})
@@ -219,7 +220,42 @@ onMounted(async()=>{try{if(api.token.value){currentUser.value=await api.me();if(
         <div class="table-wrap"><table><thead><tr><SortableTh v-model="sorting.transactions" field="transaction_date" default-direction="desc">Invoice / Tanggal</SortableTh><SortableTh v-model="sorting.transactions" field="transaction_type" class="table-center">Tipe</SortableTh><SortableTh v-model="sorting.transactions" field="party_name">Pelanggan / Supplier</SortableTh><SortableTh v-model="sorting.transactions" field="payment_status" class="table-center">Status</SortableTh><SortableTh v-model="sorting.transactions" field="grand_total" default-direction="desc" class="table-center">Total</SortableTh><th class="table-center">Aksi</th></tr></thead><tbody><template v-for="v in transactionPage.pageItems" :key="v.id"><tr :class="{voided:v.status==='VOID'}"><td><strong>{{v.invoice_no}}</strong><small>{{new Date(v.transaction_date).toLocaleString('id-ID')}}</small></td><td class="table-center">{{v.transaction_type==='SALE'?'Penjualan':'Pembelian'}}</td><td>{{v.customer_name||v.supplier_name||'—'}}</td><td class="table-center">{{v.status==='VOID'?'Dibatalkan':v.payment_status}}</td><td class="table-center">{{money(v.grand_total)}}</td><td class="table-actions"><button class="soft" @click="expandedTransaction=expandedTransaction===v.id?null:v.id">{{expandedTransaction===v.id?'Tutup':'Detail'}}</button><button class="soft" @click="printReceipt(v)">Struk PDF</button><button class="soft" :disabled="v.status==='VOID'" @click="editTransaction(v)">Ubah</button><button class="danger" :disabled="v.status==='VOID'" @click="voidTransaction(v)">Batalkan</button></td></tr><tr v-if="expandedTransaction===v.id" class="history-detail"><td colspan="6"><div><span v-for="line in v.items" :key="`${line.item_id}-${line.unit_id}`"><b>{{line.item_name}}</b> · {{line.quantity}} {{line.unit_name}} × {{money(line.unit_price)}} = {{money(line.subtotal)}}</span></div><div><span>Uang diterima <b>{{money(v.amount_received)}}</b></span><span>Kembalian <b>{{money(v.change_amount)}}</b></span><span v-if="v.notes">Catatan: {{v.notes}}</span><span v-if="v.status==='VOID'">Alasan batal: {{v.void_reason}}</span></div></td></tr></template><tr v-if="!transactionPage.totalItems"><td colspan="6" class="empty">Tidak ada transaksi yang cocok</td></tr></tbody></table></div>
         <PaginationControls v-bind="transactionPage" @update:page="transactionPage.setPage"/>
       </section>
-      <section v-else-if="active==='debts'" class="panel"><h2>Pembayaran Piutang Pelanggan</h2><p class="hint">Pilih beberapa piutang untuk pelunasan massal atau catat cicilan satu per satu.</p><div class="debt-tabs"><button :class="{active:debtView==='open'}" @click="debtView='open'">Piutang</button><button :class="{active:debtView==='paid'}" @click="debtView='paid'">Piutang Lunas</button></div><div class="list-toolbar debt-toolbar" :class="{'is-sticky':selectedDebts.length}"><div class="debt-bulk-actions"><PageSizeSelect v-model="debtPage.pageSize" @update:model-value="debtPage.setPage(1)"/><template v-if="debtView==='open'"><button class="soft" @click="toggleAllOpenDebts">Pilih Semua</button><button v-if="selectedDebts.length" class="primary" @click="bulkSettleSelectedDebts">Lunasi {{selectedDebts.length}} Terpilih</button></template></div><button class="soft" @click="loadActiveRoute">{{loading?'Memuat…':'Refresh'}}</button></div><div class="debt" v-for="v in debtPage.pageItems" :key="v.id"><input v-if="v.status==='OPEN'" v-model="selectedDebts" class="debt-select" type="checkbox" :value="Number(v.id)" :aria-label="`Pilih piutang ${v.invoice_no}`"><span v-else class="debt-select-spacer"></span><div class="debt-info"><strong>{{v.customer_name}}</strong><small>Invoice {{v.invoice_no}}</small><small>Awal {{money(v.original_amount)}} · Sisa <b>{{money(v.remaining_amount)}}</b></small></div><form v-if="v.status==='OPEN'" @submit.prevent="payDebt(v)"><label>Nominal Pembayaran (Rp)<input :value="formatNumber(debtPayments[v.id])" @input="setCurrency($event,debtPayments,String(v.id))" inputmode="numeric" pattern="[0-9.]+" placeholder="0" required></label><button class="primary" :disabled="!debtPayments[v.id]||debtPayments[v.id]>v.remaining_amount">Catat Pembayaran</button></form><span v-else class="paid">Lunas</span></div><p v-if="!debtPage.totalItems" class="empty">{{debtView==='open'?'Tidak ada piutang terbuka.':'Belum ada piutang yang lunas.'}}</p><PaginationControls v-bind="debtPage" @update:page="debtPage.setPage"/></section>
+      <section v-else-if="active==='debts'" class="panel">
+        <h2>Pembayaran Piutang Pelanggan</h2>
+        <p class="hint">Pilih beberapa piutang untuk pelunasan massal, catat cicilan, atau koreksi pembayaran dari historinya.</p>
+        <div class="debt-tabs">
+          <button :class="{active:debtView==='open'}" @click="debtView='open'">Piutang</button>
+          <button :class="{active:debtView==='paid'}" @click="debtView='paid'">Piutang Lunas</button>
+        </div>
+        <div class="list-toolbar debt-toolbar" :class="{'is-sticky':selectedDebts.length}">
+          <div class="debt-bulk-actions">
+            <PageSizeSelect v-model="debtPage.pageSize" @update:model-value="debtPage.setPage(1)"/>
+            <template v-if="debtView==='open'">
+              <button class="soft" @click="toggleAllOpenDebts">Pilih Semua</button>
+              <button v-if="selectedDebts.length" class="primary" @click="bulkSettleSelectedDebts">Lunasi {{selectedDebts.length}} Terpilih</button>
+            </template>
+          </div>
+          <button class="soft" @click="loadActiveRoute">{{loading?'Memuat…':'Refresh'}}</button>
+        </div>
+        <DebtRow
+          v-for="v in debtPage.pageItems"
+          :key="v.id"
+          :debt="v"
+          :selected-debts="selectedDebts"
+          :payment-amount="debtPayments[v.id] || 0"
+          :expanded="expandedDebt === v.id"
+          :payments="paymentHistories[v.id] || []"
+          :money="money"
+          :format-number="formatNumber"
+          @update:selected-debts="selectedDebts=$event"
+          @update:payment-amount="debtPayments[v.id]=$event"
+          @pay="payDebt(v)"
+          @toggle-history="togglePaymentHistory(v)"
+          @reverse="reversePayment(v,$event)"
+        />
+        <p v-if="!debtPage.totalItems" class="empty">{{debtView==='open'?'Tidak ada piutang terbuka.':'Belum ada piutang yang lunas.'}}</p>
+        <PaginationControls v-bind="debtPage" @update:page="debtPage.setPage"/>
+      </section>
       <section v-else-if="active==='masters'" class="panel"><h2>Master Data Barang</h2><p class="hint">Kelola pilihan yang muncul pada form barang dan transaksi: kategori untuk mengelompokkan barang, merek untuk produsennya, satuan untuk bentuk stok, dan metode pembayaran untuk kasir.</p><form class="inline" @submit.prevent="saveMaster"><select v-model="masterForm.table" @change="editing.master=null;masterForm.name=''"><option value="categories">Kategori</option><option value="brands">Merek</option><option value="units">Satuan</option><option value="payment_methods">Metode Pembayaran</option></select><input v-model.trim="masterForm.name" minlength="2" maxlength="100" placeholder="Masukkan nama" required><button type="button" class="soft" @click="loadActiveRoute">{{loading?'Memuat…':'Refresh'}}</button><button class="primary">{{editing.master?'Simpan':'Tambah'}}</button></form><div class="master-grid"><article v-for="table in ['categories','brands','units','payment_methods']"><h3>{{({categories:'Kategori',brands:'Merek',units:'Satuan',payment_methods:'Metode Pembayaran'} as any)[table]}}</h3><div class="master-row" v-for="v in data[table]"><span>{{v.name}}</span><button class="mini" @click="editMaster(table,v)">Ubah</button><button class="mini danger" @click="deleteMaster(table,v)">Hapus</button></div></article></div></section>
 
       <section v-if="selectedReceipt" class="print-receipt" :class="{'print-target':printMode==='receipt'}"><header><h1>KOPERASI</h1><p>{{selectedReceipt.transaction_type==='SALE'?'STRUK PENJUALAN':'BUKTI PEMBELIAN'}}</p></header><div class="receipt-meta"><span>Invoice</span><b>{{selectedReceipt.invoice_no}}</b><span>Tanggal</span><b>{{new Date(selectedReceipt.transaction_date).toLocaleString('id-ID')}}</b><span>{{selectedReceipt.transaction_type==='SALE'?'Pelanggan':'Supplier'}}</span><b>{{selectedReceipt.customer_name||selectedReceipt.supplier_name||'Umum'}}</b><span>Metode</span><b>{{selectedReceipt.payment_method_name||'-'}}</b></div><table><tbody><template v-for="line in selectedReceipt.items" :key="`${line.item_id}-${line.unit_id}`"><tr><td colspan="2"><b>{{line.item_name}}</b></td></tr><tr><td>{{line.quantity}} {{line.unit_name}} × {{money(line.unit_price)}}</td><td>{{money(line.subtotal)}}</td></tr></template></tbody><tfoot><tr><th>Grand Total</th><th>{{money(selectedReceipt.grand_total)}}</th></tr><tr><td>{{selectedReceipt.transaction_type==='SALE'?'Uang Diterima':'Pembayaran'}}</td><td>{{money(selectedReceipt.amount_received)}}</td></tr><tr v-if="selectedReceipt.change_amount"><td>Kembalian</td><td>{{money(selectedReceipt.change_amount)}}</td></tr><tr v-if="selectedReceipt.payment_status!=='PAID'"><td>Sisa Piutang</td><td>{{money(selectedReceipt.grand_total-selectedReceipt.paid_amount)}}</td></tr></tfoot></table><p v-if="selectedReceipt.notes" class="receipt-notes">Catatan: {{selectedReceipt.notes}}</p><p v-if="selectedReceipt.status==='VOID'" class="receipt-void">TRANSAKSI DIBATALKAN<br>{{selectedReceipt.void_reason}}</p><footer>Terima kasih</footer></section>

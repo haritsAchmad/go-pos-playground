@@ -73,6 +73,18 @@ type Debt struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+type DebtPayment struct {
+	ID               int64      `json:"id"`
+	DebtID           int64      `json:"debt_id"`
+	Amount           int64      `json:"amount"`
+	PaymentDate      time.Time  `json:"payment_date"`
+	Notes            string     `json:"notes"`
+	ReversedAt       *time.Time `json:"reversed_at"`
+	ReversalReason   string     `json:"reversal_reason"`
+	ReversedByUserID *int64     `json:"reversed_by_user_id"`
+	ReversedByName   string     `json:"reversed_by_name"`
+}
+
 type Dashboard struct {
 	TodaySales     int64          `json:"today_sales"`
 	TodayPurchases int64          `json:"today_purchases"`
