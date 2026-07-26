@@ -1,0 +1,37 @@
+.undo-snackbar {
+  position: fixed;
+  z-index: 1400;
+  right: 24px;
+  bottom: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  width: min(460px, calc(100vw - 32px));
+  overflow: hidden;
+  padding: 15px 16px;
+  border-radius: 13px;
+  background: #173c2a;
+  color: #fff;
+  box-shadow: 0 18px 55px rgba(7, 28, 16, .35);
+}
+.undo-snackbar span { font-size: .88rem; font-weight: 700; }
+.undo-snackbar button { border: 0; background: transparent; color: #f0c75e; font-weight: 850; }
+.undo-snackbar button:disabled { opacity: .55; }
+.undo-snackbar .undo-close { color: #b9cbbf; font-size: 1.15rem; }
+.undo-snackbar i {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: #e7bd54;
+  transform-origin: left;
+  animation: undo-countdown 8s linear forwards;
+}
+.snackbar-enter-active, .snackbar-leave-active { transition: .22s ease; }
+.snackbar-enter-from, .snackbar-leave-to { opacity: 0; transform: translateY(16px); }
+@keyframes undo-countdown { to { transform: scaleX(0); } }
+@media (max-width: 600px) {
+  .undo-snackbar { right: 16px; bottom: 16px; left: 16px; width: auto; }
+}

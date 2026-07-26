@@ -2,9 +2,10 @@ import Swal from 'sweetalert2'
 import type { Ref } from 'vue'
 
 type Submit=(action:()=>Promise<any>,message:string,reload:Array<()=>Promise<void>>,confirmation?:string|false)=>Promise<boolean>
+type SoftDelete=(remove:()=>Promise<any>,restore:()=>Promise<any>,message:string,reload:Array<()=>Promise<void>>)=>Promise<boolean>
 
-export function useCustomers(options:{api:any,data:any,transactionForm:any,filters:any,editing:any,modal:Ref<null|'item'|'customer'|'supplier'>,submit:Submit}){
-  const {api,data,transactionForm,filters,editing,modal,submit}=options
+export function useCustomers(options:{api:any,data:any,transactionForm:any,filters:any,editing:any,modal:Ref<null|'item'|'customer'|'supplier'>,submit:Submit,softDelete:SoftDelete}){
+  const {api,data,transactionForm,filters,editing,modal,submit,softDelete}=options
   const customerForm=reactive<any>({code:'',name:'',phone:'',address:''})
   const customerImport=ref<HTMLInputElement|null>(null)
   const filteredCustomers=computed(()=>data.customers.filter((v:any)=>!filters.customerSearch||[v.code,v.name,v.phone].some(x=>String(x||'').toLowerCase().includes(filters.customerSearch.toLowerCase()))))
@@ -14,7 +15,7 @@ export function useCustomers(options:{api:any,data:any,transactionForm:any,filte
   function openCustomer(v:any=null){if(v?.code==='UMUM')return;editing.customer=v?.id||null;Object.keys(customerForm).forEach(k=>customerForm[k]='');if(v)Object.assign(customerForm,v);modal.value='customer'}
   function editCustomer(v:any){openCustomer(v)}
   function closeCustomer(){editing.customer=null;Object.keys(customerForm).forEach(k=>customerForm[k]='');modal.value=null}
-  async function removeCustomer(v:any){if(v.code==='UMUM')return;const result=await Swal.fire({icon:'warning',title:`Hapus ${v.name}?`,showCancelButton:true,confirmButtonText:'Hapus',cancelButtonText:'Batal',confirmButtonColor:'#b8322a'});if(result.isConfirmed)await submit(()=>api.deleteCustomer(v.id),'Pelanggan berhasil dihapus',[loadCustomers])}
+  async function removeCustomer(v:any){if(v.code==='UMUM')return;const result=await Swal.fire({icon:'warning',title:`Hapus ${v.name}?`,showCancelButton:true,confirmButtonText:'Hapus',cancelButtonText:'Batal',confirmButtonColor:'#b8322a'});if(result.isConfirmed)await softDelete(()=>api.deleteCustomer(v.id),()=>api.restoreCustomer(v.id),`Pelanggan ${v.name} dihapus`,[loadCustomers])}
   async function restoreDeletedCustomer(){const rows=await api.deletedCustomers();if(!rows.length){await Swal.fire({icon:'info',title:'Tidak ada pelanggan terhapus'});return}const result=await Swal.fire({title:'Pulihkan pelanggan',width:'min(720px, calc(100vw - 32px))',padding:'2rem',customClass:{popup:'restore-dialog',input:'restore-dialog-input'},input:'select',inputOptions:Object.fromEntries(rows.map((v:any)=>[v.id,`${v.code} · ${v.name}`])),inputPlaceholder:'Pilih pelanggan',showCancelButton:true,confirmButtonText:'Pulihkan',cancelButtonText:'Batal',inputValidator:(v)=>v?undefined:'Pilih pelanggan terlebih dahulu'});if(result.isConfirmed)await submit(()=>api.restoreCustomer(Number(result.value)),'Pelanggan berhasil dipulihkan',[loadCustomers])}
 
   watch(()=>customerForm.phone,v=>{const clean=String(v||'').replace(/\D/g,'');if(v!==clean)customerForm.phone=clean})

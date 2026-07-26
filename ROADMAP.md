@@ -31,6 +31,7 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 - Audit log untuk seluruh bulk action
 - Bulk payment/settlement untuk beberapa piutang dengan histori pembayaran per piutang
 - Bulk reset stok terpilih ke 0 dengan stock movement per barang
+- Snackbar undo untuk soft delete barang, pelanggan, dan supplier
 
 ## 🟨 In Progress
 
@@ -38,7 +39,6 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 
 ## ⬜ Planned
 
-- Snackbar undo untuk soft delete
 - Benchmark dan performance baseline
 - Docker dan deployment configuration
 - Redis untuk caching atau session support

@@ -24,6 +24,8 @@ const loading = ref(false)
 const submitting = ref(false)
 const error = ref('')
 const notice = ref('')
+const undoSnackbar=reactive<{visible:boolean,message:string,busy:boolean,restore:null|(()=>Promise<any>),reload:Array<()=>Promise<void>>}>({visible:false,message:'',busy:false,restore:null,reload:[]})
+let undoTimer:ReturnType<typeof setTimeout>|null=null
 const data = reactive<any>({ dashboard:{},items:[],customers:[],suppliers:[],categories:[],brands:[],units:[],payment_methods:[],transactions:[],debts:[],users:[],auditLogs:[] })
 const editing = reactive<any>({ item:null, customer:null, supplier:null, master:null, transaction:null })
 const printMode = ref<null|'monthly'|'receipt'>(null)
@@ -36,11 +38,11 @@ const sorting = reactive({
 const money = (v:number) => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(v||0)
 const { dashboardYear,dashboardMonth,years,months,maxSales,monthlyReportTransactions,monthlyReportTotal,dashboardPeriods,dailyTotals,loadDashboard } = useDashboard(api,data)
 const { masterForm,loadMasters,openMaster,saveMaster,editMaster,deleteMaster,findOrCreateMaster } = useMasters({api,data,editing,submit,reloadItems:()=>loadItems()})
-const { itemForm,itemImport,filteredItems,loadItems,saveItem,openItem,editItem,cancelItem,removeItem,restoreDeletedItem } = useItems({api,data,filters,editing,modal,submit,findOrCreateMaster})
+const { itemForm,itemImport,filteredItems,loadItems,saveItem,openItem,editItem,cancelItem,removeItem,restoreDeletedItem } = useItems({api,data,filters,editing,modal,submit,softDelete,findOrCreateMaster})
 const { transactionForm,transactionContext,expandedTransaction,selectedReceipt,lineTotal,changeAmount,transactionItems,filteredTransactions,loadTransactions,voidTransaction,addLine,resetTransaction,editTransaction,saveTransaction,availableUnits,chooseUnit,chooseItem,stockLabel,printReceipt } = useTransactions({api,data,active,editing,filters,submit,reloadDashboard:()=>loadDashboard(),reloadItems:()=>loadItems(),reloadDebts:()=>loadDebts(),money,printDocument})
 const { debtPayments,loadDebts,payDebt } = useDebts({api,data,submit,reloadDashboard:()=>loadDashboard(),reloadTransactions:()=>loadTransactions()})
-const { customerForm,customerImport,filteredCustomers,loadCustomers,saveCustomer,openCustomer,editCustomer,closeCustomer,removeCustomer,restoreDeletedCustomer } = useCustomers({api,data,transactionForm,filters,editing,modal,submit})
-const { supplierForm,supplierImport,filteredSuppliers,loadSuppliers,saveSupplier,openSupplier,editSupplier,closeSupplier,removeSupplier,restoreDeletedSupplier } = useSuppliers({api,data,filters,editing,modal,submit})
+const { customerForm,customerImport,filteredCustomers,loadCustomers,saveCustomer,openCustomer,editCustomer,closeCustomer,removeCustomer,restoreDeletedCustomer } = useCustomers({api,data,transactionForm,filters,editing,modal,submit,softDelete})
+const { supplierForm,supplierImport,filteredSuppliers,loadSuppliers,saveSupplier,openSupplier,editSupplier,closeSupplier,removeSupplier,restoreDeletedSupplier } = useSuppliers({api,data,filters,editing,modal,submit,softDelete})
 const { userForm,userModal,editingUser,loadUsers,openUser,closeUser,saveUser,removeUser } = useUsers({api,data,currentUser,submit})
 const sortedItems = useSorting<any>(filteredItems, () => sorting.items)
 const sortedCustomers = useSorting<any>(filteredCustomers, () => sorting.customers)
@@ -92,6 +94,10 @@ async function loadActiveRoute(){
   await runLoaders(loaders[active.value]||loaders.dashboard)
 }
 async function submit(action:()=>Promise<any>, message:string|(()=>string), reload:Array<()=>Promise<void>>, confirmation:string|false=false){if(submitting.value)return false;if(confirmation!==false){const result=await Swal.fire({icon:'question',title:'Konfirmasi',text:confirmation,showCancelButton:true,confirmButtonText:'Ya, simpan',cancelButtonText:'Batal',confirmButtonColor:'#1d6b43'});if(!result.isConfirmed)return false}error.value='';notice.value='';submitting.value=true;try{await action();await runLoaders(reload);await Swal.fire({icon:'success',title:'Berhasil',text:typeof message==='function'?message():message,confirmButtonColor:'#1d6b43'});return true}catch(e:any){const message=e?.data?.message||e.message||'Gagal menyimpan data';await Swal.fire({icon:'error',title:'Gagal',text:message,confirmButtonColor:'#1d6b43'});return false}finally{submitting.value=false}}
+function closeUndoSnackbar(){if(undoTimer)clearTimeout(undoTimer);undoTimer=null;undoSnackbar.visible=false;undoSnackbar.restore=null;undoSnackbar.reload=[]}
+async function softDelete(remove:()=>Promise<any>,restore:()=>Promise<any>,message:string,reload:Array<()=>Promise<void>>){if(submitting.value)return false;closeUndoSnackbar();submitting.value=true;try{await remove();await runLoaders(reload);Object.assign(undoSnackbar,{visible:true,message,busy:false,restore,reload});undoTimer=setTimeout(closeUndoSnackbar,8000);return true}catch(e:any){await Swal.fire({icon:'error',title:'Gagal',text:e?.data?.message||e.message||'Data gagal dihapus',confirmButtonColor:'#1d6b43'});return false}finally{submitting.value=false}}
+async function undoSoftDelete(){if(!undoSnackbar.restore||undoSnackbar.busy)return;undoSnackbar.busy=true;if(undoTimer)clearTimeout(undoTimer);try{await undoSnackbar.restore();await runLoaders(undoSnackbar.reload);closeUndoSnackbar();await Swal.fire({icon:'success',title:'Dibatalkan',text:'Data berhasil dipulihkan.',timer:1400,showConfirmButton:false})}catch(e:any){undoSnackbar.busy=false;undoTimer=setTimeout(closeUndoSnackbar,8000);await Swal.fire({icon:'error',title:'Tidak dapat memulihkan',text:e?.data?.message||e.message||'Kode atau SKU mungkin sudah digunakan data aktif',confirmButtonColor:'#1d6b43'})}}
+onBeforeUnmount(closeUndoSnackbar)
 watch(()=>route.path,async()=>{const next=routeKey();if(next===active.value)return;active.value=next;if(currentUser.value)await loadActiveRoute()})
 watch(active,(next)=>{error.value='';notice.value='';modal.value=null;if((next==='sale'||next==='purchase')&&transactionContext.value!==next){resetTransaction(next);transactionContext.value=next}})
 watch(dashboardYear,()=>runLoaders([loadDashboard]))
@@ -225,6 +231,7 @@ onMounted(async()=>{try{if(api.token.value){currentUser.value=await api.me();if(
       </section></div>
       <div v-if="userModal" class="modal-backdrop" @mousedown.self="closeUser"><section class="modal-card user-modal" role="dialog" aria-modal="true"><div class="modal-head"><div><h2>{{editingUser?'Ubah':'Tambah'}} Pengguna</h2><p>Password saat edit boleh dikosongkan jika tidak ingin diganti.</p></div><button class="modal-close" aria-label="Tutup" @click="closeUser">×</button></div><form class="grid" @submit.prevent="saveUser"><label>Nama<input v-model.trim="userForm.name" minlength="2" maxlength="100" required></label><label>Email<input v-model.trim="userForm.email" type="email" required></label><label>Password<input v-model="userForm.password" type="password" minlength="8" :required="!editingUser" autocomplete="new-password"></label><label>Role<select v-model="userForm.role" :disabled="String(editingUser)===String(currentUser.id)"><option value="admin">Admin</option><option value="cashier">Kasir</option><option value="viewer">Viewer</option></select><small v-if="String(editingUser)===String(currentUser.id)">Role akun sendiri tidak dapat diubah.</small></label><label class="check-label"><input v-model="userForm.active" type="checkbox" :disabled="String(editingUser)===String(currentUser.id)"> Akun aktif</label><div class="modal-actions wide"><button type="button" class="soft" @click="closeUser">Batal</button><button class="primary">Simpan</button></div></form></section></div>
     </main>
+    <Transition name="snackbar"><div v-if="undoSnackbar.visible" class="undo-snackbar" role="status" aria-live="polite"><span>{{undoSnackbar.message}}</span><button :disabled="undoSnackbar.busy" @click="undoSoftDelete">{{undoSnackbar.busy?'Memulihkan…':'Urungkan'}}</button><button class="undo-close" aria-label="Tutup notifikasi" @click="closeUndoSnackbar">×</button><i aria-hidden="true"></i></div></Transition>
   </div>
 </template>
 

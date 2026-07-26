@@ -11,7 +11,7 @@ export default defineNuxtConfig({
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     },
   },
-  css: ['~/assets/css/main.css', '~/assets/css/improvements.css', '~/assets/css/payment.css', '~/assets/css/navigation.css'],
+  css: ['~/assets/css/main.css', '~/assets/css/improvements.css', '~/assets/css/payment.css', '~/assets/css/navigation.css', '~/assets/css/undo.css'],
   runtimeConfig: {
     public: { apiBase: '/api' },
   },
