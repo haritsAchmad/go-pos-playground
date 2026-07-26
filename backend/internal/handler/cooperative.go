@@ -518,3 +518,22 @@ func (h *CooperativeHandler) ReverseDebtPayment(w http.ResponseWriter, r *http.R
 	}
 	response.Success(w, http.StatusOK, "payment reversed", nil)
 }
+
+func (h *CooperativeHandler) StockMovements(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if r.Method != http.MethodGet || len(parts) != 3 || parts[0] != "items" || parts[2] != "stock-movements" {
+		response.Error(w, http.StatusNotFound, "stock movement path not found")
+		return
+	}
+	itemID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid item id")
+		return
+	}
+	movements, err := h.repo.StockMovements(r.Context(), itemID)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to get stock movements")
+		return
+	}
+	response.Success(w, http.StatusOK, "stock movements fetched", movements)
+}

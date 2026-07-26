@@ -75,6 +75,10 @@ func New(
 		}
 	})
 	mux.HandleFunc("/items/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/stock-movements") {
+			protect(cooperativeHandler.StockMovements, "admin", "cashier", "viewer")(w, r)
+			return
+		}
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/restore") {
 			protect(itemHandler.Restore, "admin", "cashier")(w, r)
 			return

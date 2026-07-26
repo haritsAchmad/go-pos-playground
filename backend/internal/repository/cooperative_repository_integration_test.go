@@ -473,6 +473,31 @@ func TestBulkOperationalActionsIntegration(t *testing.T) {
 	})
 }
 
+func TestStockMovementTraceIntegration(t *testing.T) {
+	f := newTransactionFixture(t)
+	transaction, err := f.repository.CreateTransaction(f.ctx, f.request("SALE", 3, 3000, false))
+	if err != nil {
+		t.Fatalf("create sale: %v", err)
+	}
+	movements, err := f.repository.StockMovements(f.ctx, f.itemID)
+	if err != nil {
+		t.Fatalf("read sale movement: %v", err)
+	}
+	if len(movements) != 1 || movements[0].MovementType != "SALE" || movements[0].QuantityBefore != 10 || movements[0].QuantityChange != -3 || movements[0].QuantityAfter != 7 {
+		t.Fatalf("unexpected sale movement: %+v", movements)
+	}
+	if err := f.repository.VoidTransaction(f.ctx, transaction.ID, "test trace"); err != nil {
+		t.Fatalf("void sale: %v", err)
+	}
+	movements, err = f.repository.StockMovements(f.ctx, f.itemID)
+	if err != nil {
+		t.Fatalf("read void movement: %v", err)
+	}
+	if len(movements) != 2 || movements[0].MovementType != "TRANSACTION_VOID" || movements[0].QuantityBefore != 7 || movements[0].QuantityChange != 3 || movements[0].QuantityAfter != 10 {
+		t.Fatalf("unexpected void movement: %+v", movements)
+	}
+}
+
 func TestPaginationIntegration(t *testing.T) {
 	t.Run("customers include stable metadata and page boundaries", func(t *testing.T) {
 		f := newTransactionFixture(t)

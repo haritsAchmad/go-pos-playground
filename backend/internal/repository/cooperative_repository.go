@@ -20,6 +20,34 @@ type CooperativeRepository struct {
 	schema string
 }
 
+func (r *CooperativeRepository) recordStockMovement(ctx context.Context, tx pgx.Tx, itemID int64, movementType string, before, change int, notes string) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.stock_movements(item_id,movement_type,quantity_before,quantity_change,quantity_after,notes)
+		VALUES($1,$2,$3,$4,$5,$6)
+	`, r.schema), itemID, movementType, before, change, before+change, notes)
+	return err
+}
+
+func (r *CooperativeRepository) StockMovements(ctx context.Context, itemID int64) ([]entity.StockMovement, error) {
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
+		SELECT id,item_id,movement_type,quantity_before,quantity_change,quantity_after,notes,created_at
+		FROM %s.stock_movements WHERE item_id=$1 ORDER BY created_at DESC,id DESC LIMIT 200
+	`, r.schema), itemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]entity.StockMovement, 0)
+	for rows.Next() {
+		var movement entity.StockMovement
+		if err := rows.Scan(&movement.ID, &movement.ItemID, &movement.MovementType, &movement.QuantityBefore, &movement.QuantityChange, &movement.QuantityAfter, &movement.Notes, &movement.CreatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, movement)
+	}
+	return result, rows.Err()
+}
+
 func NewCooperativeRepository(db *pgxpool.Pool, schema string) *CooperativeRepository {
 	return &CooperativeRepository{db: db, schema: pgx.Identifier{schema}.Sanitize()}
 }
@@ -480,6 +508,9 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 		if err != nil {
 			return entity.Transaction{}, err
 		}
+		if err := r.recordStockMovement(ctx, tx, line.ItemID, req.TransactionType, stock, change, invoice); err != nil {
+			return entity.Transaction{}, err
+		}
 	}
 	if req.TransactionType == "SALE" && paid < total {
 		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.debts (transaction_id,customer_id,original_amount,remaining_amount) VALUES ($1,$2,$3,$4)`, r.schema), id, req.CustomerID, total-paid, total-paid)
@@ -711,6 +742,9 @@ func (r *CooperativeRepository) UpdateTransaction(ctx context.Context, id int64,
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.items SET stock=stock+$1,updated_at=NOW() WHERE id=$2`, r.schema), change, v.itemID); err != nil {
 			return entity.Transaction{}, err
 		}
+		if err := r.recordStockMovement(ctx, tx, v.itemID, "TRANSACTION_EDIT_RESTORE", stock, change, invoice); err != nil {
+			return entity.Transaction{}, err
+		}
 	}
 
 	var total int64
@@ -786,6 +820,9 @@ func (r *CooperativeRepository) UpdateTransaction(ctx context.Context, id int64,
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.items SET stock=stock+$1,updated_at=NOW() WHERE id=$2`, r.schema), change, line.ItemID); err != nil {
 			return entity.Transaction{}, err
 		}
+		if err := r.recordStockMovement(ctx, tx, line.ItemID, "TRANSACTION_EDIT_APPLY", stock, change, invoice); err != nil {
+			return entity.Transaction{}, err
+		}
 	}
 	if kind == "SALE" && paid < total {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.debts(transaction_id,customer_id,original_amount,remaining_amount) VALUES($1,$2,$3,$3)`, r.schema), id, req.CustomerID, total-paid); err != nil {
@@ -841,18 +878,21 @@ func (r *CooperativeRepository) VoidTransaction(ctx context.Context, id int64, r
 	}
 	for _, v := range lines {
 		change := -v.qty
+		var stock int
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT stock FROM %s.items WHERE id=$1 FOR UPDATE`, r.schema), v.id).Scan(&stock); err != nil {
+			return err
+		}
 		if kind == "SALE" {
 			change = v.qty
 		} else {
-			var stock int
-			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT stock FROM %s.items WHERE id=$1 FOR UPDATE`, r.schema), v.id).Scan(&stock); err != nil {
-				return err
-			}
 			if stock-v.qty < 0 {
 				return errors.New("pembelian tidak dapat dibatalkan karena stoknya sudah terpakai")
 			}
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.items SET stock=stock+$1,updated_at=NOW() WHERE id=$2`, r.schema), change, v.id); err != nil {
+			return err
+		}
+		if err := r.recordStockMovement(ctx, tx, v.id, "TRANSACTION_VOID", stock, change, fmt.Sprintf("Transaksi #%d: %s", id, reason)); err != nil {
 			return err
 		}
 	}

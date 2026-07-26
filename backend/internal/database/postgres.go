@@ -230,6 +230,12 @@ func Migrate(ctx context.Context, db *pgxpool.Pool, schema string) error {
 			notes TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`, qualifiedSchema, qualifiedSchema),
+		fmt.Sprintf(`
+			INSERT INTO %s.stock_movements(item_id,movement_type,quantity_before,quantity_change,quantity_after,notes)
+			SELECT i.id,'OPENING_BALANCE',0,i.stock,i.stock,'Saldo stok saat histori mulai digunakan'
+			FROM %s.items i
+			WHERE i.stock<>0 AND NOT EXISTS (SELECT 1 FROM %s.stock_movements m WHERE m.item_id=i.id)
+		`, qualifiedSchema, qualifiedSchema, qualifiedSchema),
 		fmt.Sprintf(`INSERT INTO %s.categories (name) VALUES ('Umum') ON CONFLICT (name) DO NOTHING`, qualifiedSchema),
 		fmt.Sprintf(`INSERT INTO %s.brands (name) VALUES ('Tanpa Merek') ON CONFLICT (name) DO NOTHING`, qualifiedSchema),
 		fmt.Sprintf(`INSERT INTO %s.units (name) VALUES ('Pcs'), ('Pack'), ('Box') ON CONFLICT (name) DO NOTHING`, qualifiedSchema),

@@ -79,6 +79,7 @@ export function useKoperasiApi() {
     updateItem: (id: number, body: any) => request(`/items/${id}`, { method: 'PUT', body }),
     deleteItem: (id: number) => request(`/items/${id}`, { method: 'DELETE' }),
     restoreItem: (id: number) => request(`/items/${id}/restore`, { method: 'POST' }),
+    stockMovements: (id: number) => request<any[]>(`/items/${id}/stock-movements`),
     createSupplier: (body: any) => request('/suppliers', { method: 'POST', body }),
     updateSupplier: (id: number, body: any) => request(`/suppliers/${id}`, { method: 'PUT', body }),
     deleteSupplier: (id: number) => request(`/suppliers/${id}`, { method: 'DELETE' }),

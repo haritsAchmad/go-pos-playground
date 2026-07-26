@@ -9,6 +9,8 @@ export function useItems(options:{api:any,data:any,filters:any,editing:any,modal
   const emptyItem=()=>({sku:'',name:'',description:'',supplier_id:null,category_id:null,brand_id:null,brand_name:'',unit_id:null,base_unit_id:null,units_per_package:1,allow_retail:false,stock:0,cost:0,price:0,retail_cost:0,retail_price:0})
   const itemForm=reactive<any>(emptyItem())
   const itemImport=ref<HTMLInputElement|null>(null)
+  const stockHistoryItem=ref<any>(null)
+  const stockMovements=ref<any[]>([])
   const filteredItems=computed(()=>data.items.filter((v:any)=>{
     const query=filters.itemSearch.toLowerCase();const matchesQuery=!query||[v.sku,v.name,v.category_name,v.brand_name].some(x=>String(x||'').toLowerCase().includes(query));
     const matchesCategory=!filters.category||String(v.category_id)===filters.category;
@@ -26,5 +28,8 @@ export function useItems(options:{api:any,data:any,filters:any,editing:any,modal
   async function removeItem(v:any){const result=await Swal.fire({icon:'warning',title:`Hapus ${v.name}?`,text:'Data dapat dipulihkan kembali sesaat setelah dihapus.',showCancelButton:true,confirmButtonText:'Hapus',cancelButtonText:'Batal',confirmButtonColor:'#b8322a'});if(result.isConfirmed)await softDelete(()=>api.deleteItem(v.id),()=>api.restoreItem(v.id),`Barang ${v.name} dihapus`,[loadItems])}
   async function restoreDeletedItem(){const rows=await api.deletedItems();if(!rows.length){await Swal.fire({icon:'info',title:'Tidak ada barang terhapus'});return}const result=await Swal.fire({title:'Pulihkan barang',width:'min(720px, calc(100vw - 32px))',padding:'2rem',customClass:{popup:'restore-dialog',input:'restore-dialog-input'},input:'select',inputOptions:Object.fromEntries(rows.map((v:any)=>[v.id,`${v.sku} · ${v.name}`])),inputPlaceholder:'Pilih barang',showCancelButton:true,confirmButtonText:'Pulihkan',cancelButtonText:'Batal',inputValidator:(v)=>v?undefined:'Pilih barang terlebih dahulu'});if(result.isConfirmed)await submit(()=>api.restoreItem(Number(result.value)),'Barang berhasil dipulihkan',[loadItems])}
 
-  return {itemForm,itemImport,filteredItems,loadItems,saveItem,openItem,editItem,cancelItem,removeItem,restoreDeletedItem}
+  async function openStockHistory(item:any){stockHistoryItem.value=item;stockMovements.value=await api.stockMovements(item.id)}
+  function closeStockHistory(){stockHistoryItem.value=null;stockMovements.value=[]}
+
+  return {itemForm,itemImport,filteredItems,stockHistoryItem,stockMovements,loadItems,saveItem,openItem,editItem,cancelItem,removeItem,restoreDeletedItem,openStockHistory,closeStockHistory}
 }

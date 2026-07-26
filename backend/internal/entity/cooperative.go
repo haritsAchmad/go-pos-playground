@@ -85,6 +85,17 @@ type DebtPayment struct {
 	ReversedByName   string     `json:"reversed_by_name"`
 }
 
+type StockMovement struct {
+	ID             int64     `json:"id"`
+	ItemID         int64     `json:"item_id"`
+	MovementType   string    `json:"movement_type"`
+	QuantityBefore int       `json:"quantity_before"`
+	QuantityChange int       `json:"quantity_change"`
+	QuantityAfter  int       `json:"quantity_after"`
+	Notes          string    `json:"notes"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 type Dashboard struct {
 	TodaySales     int64          `json:"today_sales"`
 	TodayPurchases int64          `json:"today_purchases"`

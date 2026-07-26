@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Swal from 'sweetalert2'
 import DebtRow from './DebtRow.vue'
+import StockMovementHistory from './StockMovementHistory.vue'
 
 const route = useRoute()
 
@@ -39,7 +40,7 @@ const sorting = reactive({
 const money = (v:number) => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(v||0)
 const { dashboardYear,dashboardMonth,years,months,maxSales,monthlyReportTransactions,monthlyReportTotal,dashboardPeriods,dailyTotals,loadDashboard } = useDashboard(api,data)
 const { masterForm,loadMasters,openMaster,saveMaster,editMaster,deleteMaster,findOrCreateMaster } = useMasters({api,data,editing,submit,reloadItems:()=>loadItems()})
-const { itemForm,itemImport,filteredItems,loadItems,saveItem,openItem,editItem,cancelItem,removeItem,restoreDeletedItem } = useItems({api,data,filters,editing,modal,submit,softDelete,findOrCreateMaster})
+const { itemForm,itemImport,filteredItems,stockHistoryItem,stockMovements,loadItems,saveItem,openItem,editItem,cancelItem,removeItem,restoreDeletedItem,openStockHistory,closeStockHistory } = useItems({api,data,filters,editing,modal,submit,softDelete,findOrCreateMaster})
 const { transactionForm,transactionContext,expandedTransaction,selectedReceipt,lineTotal,changeAmount,transactionItems,filteredTransactions,loadTransactions,voidTransaction,addLine,resetTransaction,editTransaction,saveTransaction,availableUnits,chooseUnit,chooseItem,stockLabel,printReceipt } = useTransactions({api,data,active,editing,filters,submit,reloadDashboard:()=>loadDashboard(),reloadItems:()=>loadItems(),reloadDebts:()=>loadDebts(),money,printDocument})
 const { debtPayments,paymentHistories,expandedDebt,loadDebts,payDebt,togglePaymentHistory,reversePayment } = useDebts({api,data,submit,reloadDashboard:()=>loadDashboard(),reloadTransactions:()=>loadTransactions()})
 const { customerForm,customerImport,filteredCustomers,loadCustomers,saveCustomer,openCustomer,editCustomer,closeCustomer,removeCustomer,restoreDeletedCustomer } = useCustomers({api,data,transactionForm,filters,editing,modal,submit,softDelete})
@@ -176,6 +177,7 @@ onMounted(async()=>{try{if(api.token.value){currentUser.value=await api.me();if(
   <div v-else-if="currentUser" class="app-shell">
     <aside><div class="brand"><span>K</span><div><strong>Koperasi</strong><small>Operational Console</small></div></div><nav><NuxtLink v-for="n in nav" :key="n[0]" :to="n[2]" :class="{active:active===n[0]}">{{ n[1] }}</NuxtLink></nav></aside>
     <main @keydown="blockInvalidNumber" @input="sanitizeNumeric">
+      <StockMovementHistory v-if="stockHistoryItem" :item="stockHistoryItem" :movements="stockMovements" @close="closeStockHistory"/>
       <header><div><p class="eyebrow">SIG KOPERASI · GO + NUXT</p><h1>{{ nav.find(n=>n[0]===active)?.[1] }}</h1></div><div class="user-actions"><span><b>{{currentUser.name}}</b><small>{{currentUser.role}}</small></span><button class="soft" @click="logout">Keluar</button></div></header>
       <p v-if="error" class="alert error">{{ error }}</p><p v-if="notice" class="alert success">{{ notice }}</p>
 
@@ -193,7 +195,7 @@ onMounted(async()=>{try{if(api.token.value){currentUser.value=await api.me();if(
       <template v-else-if="active==='items'">
         <div class="page-heading"><div><h2>Daftar Barang</h2><p>Kelola katalog dan persediaan barang.</p></div><div class="heading-actions"><input ref="itemImport" class="file-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" @change="importData('items',$event)"><button class="soft" @click="itemImport?.click()">Import Excel</button><button class="soft" @click="exportData('items')">Export Excel</button><button class="soft" @click="restoreDeletedItem">Pulihkan Satu</button><button class="soft" @click="bulkRestoreDeleted('items')">Pulihkan Massal</button><button v-if="bulkSelected.items.length" class="soft" @click="bulkResetSelectedStock">Reset Stok {{bulkSelected.items.length}}</button><button v-if="bulkSelected.items.length" class="danger" @click="bulkDeleteSelected('items')">Hapus {{bulkSelected.items.length}} Terpilih</button><button class="soft" @click="loadActiveRoute">{{loading?'Memuat…':'Refresh'}}</button><button class="primary" @click="openItem()">+ Tambah Barang</button></div></div>
         <section class="panel toolbar"><PageSizeSelect v-model="itemPage.pageSize" @update:model-value="itemPage.setPage(1)"/><input v-model="filters.itemSearch" type="search" placeholder="Cari nama atau SKU..."><select v-model="filters.category"><option value="">Semua kategori</option><option v-for="v in data.categories" :value="String(v.id)">{{v.name}}</option></select><select v-model="filters.stock"><option value="">Semua stok</option><option value="empty">Stok habis</option><option value="low">Stok menipis (1-5)</option><option value="ready">Stok tersedia</option></select><button class="soft" @click="Object.assign(filters,{itemSearch:'',category:'',stock:''})">Reset Filter</button></section>
-        <DataTable v-model:sorting="sorting.items" v-model:selected-ids="bulkSelected.items" selectable actions :rows="itemPage.pageItems" :columns="[['sku','Kode / SKU'],['name','Barang'],['category_name','Kategori'],['unit_name','Kemasan'],['base_unit_name','Eceran'],['stock_display','Stok',null,'table-center'],['cost','Harga Beli/Kemasan','money','table-center','desc'],['price','Harga Jual/Kemasan','money','table-center','desc']]" @edit="editItem" @delete="removeItem" />
+        <DataTable v-model:sorting="sorting.items" v-model:selected-ids="bulkSelected.items" selectable actions trace-actions :rows="itemPage.pageItems" :columns="[['sku','Kode / SKU'],['name','Barang'],['category_name','Kategori'],['unit_name','Kemasan'],['base_unit_name','Eceran'],['stock_display','Stok',null,'table-center'],['cost','Harga Beli/Kemasan','money','table-center','desc'],['price','Harga Jual/Kemasan','money','table-center','desc']]" @trace="openStockHistory" @edit="editItem" @delete="removeItem" />
         <PaginationControls v-bind="itemPage" @update:page="itemPage.setPage"/>
       </template>
 

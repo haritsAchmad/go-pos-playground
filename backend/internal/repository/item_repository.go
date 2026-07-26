@@ -165,6 +165,11 @@ func (r *ItemRepository) Create(
 	ctx context.Context,
 	req dto.CreateItemRequest,
 ) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
 
 	query := fmt.Sprintf(`
 		INSERT INTO %s.items
@@ -183,10 +188,11 @@ func (r *ItemRepository) Create(
 			$3,
 			$4,
 			$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
-		)
+		) RETURNING id
 	`, r.schema)
 
-	_, err := r.db.Exec(
+	var itemID int64
+	err = tx.QueryRow(
 		ctx,
 		query,
 		req.SupplierID,
@@ -196,9 +202,19 @@ func (r *ItemRepository) Create(
 		req.Price,
 		req.Cost, req.SKU, req.CategoryID, req.BrandID, req.UnitID,
 		req.BaseUnitID, req.UnitsPerPackage, req.AllowRetail, req.RetailPrice, req.RetailCost,
-	)
-
-	return err
+	).Scan(&itemID)
+	if err != nil {
+		return err
+	}
+	if req.Stock != 0 {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.stock_movements(item_id,movement_type,quantity_before,quantity_change,quantity_after,notes)
+			VALUES($1,'INITIAL_STOCK',0,$2,$2,'Stok awal barang')
+		`, r.schema), itemID, req.Stock); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *ItemRepository) FindByID(ctx context.Context, id int) (*entity.Items, error) {
@@ -242,6 +258,18 @@ func (r *ItemRepository) Update(
 	id int,
 	req dto.UpdateItemRequest,
 ) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var oldStock int
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT stock FROM %s.items WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, r.schema), id).Scan(&oldStock); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrItemNotFound
+		}
+		return err
+	}
 	query := fmt.Sprintf(`
 		UPDATE %s.items
 		SET
@@ -258,7 +286,7 @@ func (r *ItemRepository) Update(
 			AND deleted_at IS NULL
 	`, r.schema)
 
-	commandTag, err := r.db.Exec(
+	commandTag, err := tx.Exec(
 		ctx,
 		query,
 		req.SupplierID,
@@ -278,8 +306,15 @@ func (r *ItemRepository) Update(
 	if commandTag.RowsAffected() == 0 {
 		return ErrItemNotFound
 	}
-
-	return nil
+	if oldStock != req.Stock {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.stock_movements(item_id,movement_type,quantity_before,quantity_change,quantity_after,notes)
+			VALUES($1,'MANUAL_ADJUSTMENT',$2,$3,$4,'Perubahan stok dari form barang')
+		`, r.schema), id, oldStock, req.Stock-oldStock, req.Stock); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *ItemRepository) Delete(
