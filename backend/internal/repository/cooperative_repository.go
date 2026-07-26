@@ -257,6 +257,51 @@ func (r *CooperativeRepository) BulkRestore(ctx context.Context, table string, i
 	return result
 }
 
+func (r *CooperativeRepository) BulkSettleDebts(ctx context.Context, ids []int64) entity.BulkResult {
+	result := entity.BulkResult{Results: make([]entity.BulkItemResult, 0, len(ids))}
+	for _, id := range ids {
+		var remaining int64
+		err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_amount FROM %s.debts WHERE id=$1 AND status='OPEN'`, r.schema), id).Scan(&remaining)
+		if err == nil {
+			err = r.PayDebt(ctx, id, remaining, "Pelunasan massal")
+		}
+		item := entity.BulkItemResult{ID: id, Success: err == nil}
+		if err != nil {
+			item.Message = "piutang tidak ditemukan atau sudah lunas"
+		}
+		result.Results = append(result.Results, item)
+	}
+	return result
+}
+
+func (r *CooperativeRepository) BulkResetStock(ctx context.Context, ids []int64) entity.BulkResult {
+	result := entity.BulkResult{Results: make([]entity.BulkItemResult, 0, len(ids))}
+	for _, id := range ids {
+		tx, err := r.db.Begin(ctx)
+		if err == nil {
+			var stock int
+			err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT stock FROM %s.items WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, r.schema), id).Scan(&stock)
+			if err == nil {
+				_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.stock_movements(item_id,movement_type,quantity_before,quantity_change,quantity_after,notes) VALUES($1,'BULK_RESET',$2,$3,0,'Reset stok massal ke 0')`, r.schema), id, stock, -stock)
+			}
+			if err == nil {
+				_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.items SET stock=0,updated_at=NOW() WHERE id=$1`, r.schema), id)
+			}
+			if err == nil {
+				err = tx.Commit(ctx)
+			} else {
+				_ = tx.Rollback(ctx)
+			}
+		}
+		item := entity.BulkItemResult{ID: id, Success: err == nil}
+		if err != nil {
+			item.Message = "barang aktif tidak ditemukan"
+		}
+		result.Results = append(result.Results, item)
+	}
+	return result
+}
+
 // mergeTransactionItems makes stock validation and mutation use the total quantity
 // when the same item was accidentally entered more than once.
 func mergeTransactionItems(items []entity.TransactionLine) ([]entity.TransactionLine, error) {

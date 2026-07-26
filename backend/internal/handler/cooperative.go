@@ -183,7 +183,7 @@ func (h *CooperativeHandler) RestoreCustomer(w http.ResponseWriter, r *http.Requ
 func (h *CooperativeHandler) BulkSoftDeleteRestore(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if r.Method != http.MethodPost || len(parts) != 3 || parts[0] != "bulk" ||
-		(parts[2] != "delete" && parts[2] != "restore") {
+		(parts[2] != "delete" && parts[2] != "restore" && parts[2] != "settle" && parts[2] != "reset-stock") {
 		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -211,7 +211,11 @@ func (h *CooperativeHandler) BulkSoftDeleteRestore(w http.ResponseWriter, r *htt
 	}
 	w.Header().Set("X-Audit-Targets", strings.Join(targets, ","))
 	var result entity.BulkResult
-	if parts[2] == "delete" {
+	if parts[1] == "debts" && parts[2] == "settle" {
+		result = h.repo.BulkSettleDebts(r.Context(), ids)
+	} else if parts[1] == "items" && parts[2] == "reset-stock" {
+		result = h.repo.BulkResetStock(r.Context(), ids)
+	} else if parts[2] == "delete" {
 		result = h.repo.BulkSoftDelete(r.Context(), parts[1], ids)
 	} else {
 		result = h.repo.BulkRestore(r.Context(), parts[1], ids)

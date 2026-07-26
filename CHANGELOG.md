@@ -8,6 +8,7 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 - Daftar data terhapus dan aksi pemulihan untuk barang, pelanggan, dan supplier dengan validasi konflik kode/SKU aktif.
 - Bulk soft delete dan bulk restore hingga 100 barang, pelanggan, atau supplier dengan hasil per item dan audit target.
+- Pelunasan massal beberapa piutang dengan histori pembayaran individual serta reset stok massal ke 0 dengan stock movement per barang.
 - Roadmap project terpisah untuk melacak pekerjaan yang selesai, sedang berjalan, direncanakan, dan belum diprioritaskan.
 - Sliding session ringan dengan endpoint `POST /auth/refresh` untuk memperpanjang JWT pengguna aktif.
 - Pencatatan aktivitas frontend tanpa polling serta deduplikasi refresh untuk request API paralel.

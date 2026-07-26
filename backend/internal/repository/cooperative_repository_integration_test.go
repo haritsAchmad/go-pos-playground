@@ -385,6 +385,47 @@ func TestDebtPaymentIntegration(t *testing.T) {
 	})
 }
 
+func TestBulkOperationalActionsIntegration(t *testing.T) {
+	t.Run("settlement creates individual payment history", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		transaction, err := f.repository.CreateTransaction(f.ctx, f.request("SALE", 3, 1000, true))
+		if err != nil {
+			t.Fatalf("create credit sale: %v", err)
+		}
+		q := pgx.Identifier{f.schema}.Sanitize()
+		var debtID int64
+		if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT id FROM %s.debts WHERE transaction_id=$1`, q), transaction.ID).Scan(&debtID); err != nil {
+			t.Fatalf("read debt: %v", err)
+		}
+		result := f.repository.BulkSettleDebts(f.ctx, []int64{debtID})
+		if len(result.Results) != 1 || !result.Results[0].Success {
+			t.Fatalf("bulk settlement result: %+v", result)
+		}
+		var remaining, payments int64
+		if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT remaining_amount,(SELECT COUNT(*) FROM %s.debt_payments WHERE debt_id=$1) FROM %s.debts WHERE id=$1`, q, q), debtID).Scan(&remaining, &payments); err != nil {
+			t.Fatalf("read settlement state: %v", err)
+		}
+		if remaining != 0 || payments != 1 {
+			t.Fatalf("remaining=%d payments=%d, want 0/1", remaining, payments)
+		}
+	})
+	t.Run("stock reset creates traceable movement", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		result := f.repository.BulkResetStock(f.ctx, []int64{f.itemID})
+		if len(result.Results) != 1 || !result.Results[0].Success {
+			t.Fatalf("bulk reset result: %+v", result)
+		}
+		q := pgx.Identifier{f.schema}.Sanitize()
+		var stock, before, change, after int
+		if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT i.stock,m.quantity_before,m.quantity_change,m.quantity_after FROM %s.items i JOIN %s.stock_movements m ON m.item_id=i.id WHERE i.id=$1`, q, q), f.itemID).Scan(&stock, &before, &change, &after); err != nil {
+			t.Fatalf("read stock movement: %v", err)
+		}
+		if stock != 0 || before != 10 || change != -10 || after != 0 {
+			t.Fatalf("stock movement = %d/%d/%d/%d", stock, before, change, after)
+		}
+	})
+}
+
 func TestPaginationIntegration(t *testing.T) {
 	t.Run("customers include stable metadata and page boundaries", func(t *testing.T) {
 		f := newTransactionFixture(t)

@@ -74,6 +74,12 @@ func auditAction(method, path string) string {
 		if strings.HasSuffix(path, "/restore") {
 			return "BULK_RESTORE"
 		}
+		if strings.HasSuffix(path, "/settle") {
+			return "BULK_SETTLEMENT"
+		}
+		if strings.HasSuffix(path, "/reset-stock") {
+			return "BULK_STOCK_RESET"
+		}
 		return "BULK_DELETE"
 	}
 	if strings.HasSuffix(path, "/void") {
