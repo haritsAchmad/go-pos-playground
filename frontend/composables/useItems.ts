@@ -22,7 +22,8 @@ export function useItems(options:{api:any,data:any,filters:any,editing:any,modal
   function openItem(v:any=null){cancelItem(false);if(v){editing.item=v.id;Object.assign(itemForm,v)}modal.value='item'}
   function editItem(v:any){openItem(v)}
   function cancelItem(close=true){editing.item=null;Object.assign(itemForm,emptyItem());if(close)modal.value=null}
-  async function removeItem(v:any){const result=await Swal.fire({icon:'warning',title:`Hapus ${v.name}?`,text:'Data yang sudah dihapus tidak dapat dikembalikan.',showCancelButton:true,confirmButtonText:'Hapus',cancelButtonText:'Batal',confirmButtonColor:'#b8322a'});if(result.isConfirmed)await submit(()=>api.deleteItem(v.id),'Barang berhasil dihapus',[loadItems])}
+  async function removeItem(v:any){const result=await Swal.fire({icon:'warning',title:`Hapus ${v.name}?`,text:'Data dapat dipulihkan kembali dari daftar data terhapus.',showCancelButton:true,confirmButtonText:'Hapus',cancelButtonText:'Batal',confirmButtonColor:'#b8322a'});if(result.isConfirmed)await submit(()=>api.deleteItem(v.id),'Barang berhasil dihapus',[loadItems])}
+  async function restoreDeletedItem(){const rows=await api.deletedItems();if(!rows.length){await Swal.fire({icon:'info',title:'Tidak ada barang terhapus'});return}const result=await Swal.fire({title:'Pulihkan barang',width:'min(720px, calc(100vw - 32px))',padding:'2rem',customClass:{popup:'restore-dialog',input:'restore-dialog-input'},input:'select',inputOptions:Object.fromEntries(rows.map((v:any)=>[v.id,`${v.sku} · ${v.name}`])),inputPlaceholder:'Pilih barang',showCancelButton:true,confirmButtonText:'Pulihkan',cancelButtonText:'Batal',inputValidator:(v)=>v?undefined:'Pilih barang terlebih dahulu'});if(result.isConfirmed)await submit(()=>api.restoreItem(Number(result.value)),'Barang berhasil dipulihkan',[loadItems])}
 
-  return {itemForm,itemImport,filteredItems,loadItems,saveItem,openItem,editItem,cancelItem,removeItem}
+  return {itemForm,itemImport,filteredItems,loadItems,saveItem,openItem,editItem,cancelItem,removeItem,restoreDeletedItem}
 }

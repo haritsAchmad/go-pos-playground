@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"strings"
 
 	"go-pos-playground/internal/auth"
 	"go-pos-playground/internal/handler"
@@ -73,6 +74,10 @@ func New(
 		}
 	})
 	mux.HandleFunc("/items/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/restore") {
+			protect(itemHandler.Restore, "admin", "cashier")(w, r)
+			return
+		}
 		switch r.Method {
 		case http.MethodGet:
 			protect(itemHandler.FindByID, "admin", "cashier", "viewer")(w, r)
@@ -84,6 +89,7 @@ func New(
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	mux.HandleFunc("/deleted/items", protect(itemHandler.FindDeleted, "admin", "cashier"))
 	mux.HandleFunc("/suppliers", func(
 		w http.ResponseWriter,
 		r *http.Request,
@@ -98,6 +104,10 @@ func New(
 		}
 	})
 	mux.HandleFunc("/suppliers/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/restore") {
+			protect(supplierHandler.Restore, "admin", "cashier")(w, r)
+			return
+		}
 		switch r.Method {
 		case http.MethodGet:
 			protect(supplierHandler.FindByID, "admin", "cashier", "viewer")(w, r)
@@ -109,6 +119,7 @@ func New(
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	mux.HandleFunc("/deleted/suppliers", protect(supplierHandler.FindDeleted, "admin", "cashier"))
 	mux.HandleFunc("/dashboard", protect(cooperativeHandler.Dashboard, "admin", "cashier", "viewer"))
 	mux.HandleFunc("/masters/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
@@ -129,12 +140,17 @@ func New(
 		protect(cooperativeHandler.Customers, "admin", "cashier")(w, r)
 	})
 	mux.HandleFunc("/customers/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/restore") {
+			protect(cooperativeHandler.RestoreCustomer, "admin", "cashier")(w, r)
+			return
+		}
 		if r.Method == http.MethodGet {
 			protect(cooperativeHandler.CustomerDetail, "admin", "cashier", "viewer")(w, r)
 			return
 		}
 		protect(cooperativeHandler.CustomerDetail, "admin", "cashier")(w, r)
 	})
+	mux.HandleFunc("/deleted/customers", protect(cooperativeHandler.DeletedCustomers, "admin", "cashier"))
 	mux.HandleFunc("/transactions", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			protect(cooperativeHandler.Transactions, "admin", "cashier", "viewer")(w, r)

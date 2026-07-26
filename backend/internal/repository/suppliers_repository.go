@@ -21,6 +21,7 @@ type SupplierRepository struct {
 }
 
 var ErrSupplierNotFound = errors.New("supplier not found")
+var ErrSupplierRestoreConflict = errors.New("supplier code is already used by an active supplier")
 
 func NewSupplierRepository(db *pgxpool.Pool, schema string) *SupplierRepository {
 	return &SupplierRepository{
@@ -272,5 +273,35 @@ func (r *SupplierRepository) Delete(
 		return ErrSupplierNotFound
 	}
 
+	return nil
+}
+
+func (r *SupplierRepository) FindDeleted(ctx context.Context) ([]entity.Suppliers, error) {
+	return r.find(ctx, " WHERE s.deleted_at IS NOT NULL", " ORDER BY s.deleted_at DESC, s.id DESC", "", nil)
+}
+
+func (r *SupplierRepository) Restore(ctx context.Context, id int) error {
+	var conflict bool
+	if err := r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1 FROM %s.suppliers deleted
+			JOIN %s.suppliers active ON active.code=deleted.code
+			WHERE deleted.id=$1 AND deleted.deleted_at IS NOT NULL
+			  AND active.deleted_at IS NULL AND active.id<>deleted.id
+		)`, r.schema, r.schema), id).Scan(&conflict); err != nil {
+		return err
+	}
+	if conflict {
+		return ErrSupplierRestoreConflict
+	}
+	tag, err := r.db.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.suppliers SET deleted_at=NULL,updated_at=NOW()
+		WHERE id=$1 AND deleted_at IS NOT NULL`, r.schema), id)
+	if err != nil {
+		return ErrSupplierRestoreConflict
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSupplierNotFound
+	}
 	return nil
 }

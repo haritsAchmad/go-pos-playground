@@ -85,6 +85,37 @@ func (h *ItemHandler) FindAll(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, http.StatusOK, "items fetched successfully", items)
 }
 
+func (h *ItemHandler) FindDeleted(w http.ResponseWriter, r *http.Request) {
+	items, err := h.itemRepo.FindDeleted(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to get deleted items")
+		return
+	}
+	response.Success(w, http.StatusOK, "deleted items fetched successfully", items)
+}
+
+func (h *ItemHandler) Restore(w http.ResponseWriter, r *http.Request) {
+	id, err := getIDFromPath(r.URL.Path)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid item id")
+		return
+	}
+	err = h.itemRepo.Restore(r.Context(), id)
+	if errors.Is(err, repository.ErrItemNotFound) {
+		response.Error(w, http.StatusNotFound, "deleted item not found")
+		return
+	}
+	if errors.Is(err, repository.ErrItemRestoreConflict) {
+		response.Error(w, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to restore item")
+		return
+	}
+	response.Success(w, http.StatusOK, "item restored successfully", nil)
+}
+
 func (h *ItemHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req dto.CreateItemRequest
 

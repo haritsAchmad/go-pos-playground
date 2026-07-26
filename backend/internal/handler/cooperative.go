@@ -157,6 +157,29 @@ func (h *CooperativeHandler) Customers(w http.ResponseWriter, r *http.Request) {
 	response.Error(w, 405, "method not allowed")
 }
 
+func (h *CooperativeHandler) DeletedCustomers(w http.ResponseWriter, r *http.Request) {
+	data, err := h.repo.DeletedCustomers(r.Context())
+	if err != nil {
+		response.Error(w, 500, "failed to get deleted customers")
+		return
+	}
+	response.Success(w, 200, "deleted customers fetched", data)
+}
+
+func (h *CooperativeHandler) RestoreCustomer(w http.ResponseWriter, r *http.Request) {
+	raw := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/customers/"), "/restore")
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		response.Error(w, 400, "ID pelanggan tidak valid")
+		return
+	}
+	if err := h.repo.RestoreCustomer(r.Context(), id); err != nil {
+		response.Error(w, http.StatusConflict, err.Error())
+		return
+	}
+	response.Success(w, 200, "pelanggan berhasil dipulihkan", nil)
+}
+
 func (h *CooperativeHandler) CustomerDetail(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/customers/"), 10, 64)
 	if err != nil {

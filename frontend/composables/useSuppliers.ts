@@ -15,8 +15,9 @@ export function useSuppliers(options:{api:any,data:any,filters:any,editing:any,m
   function editSupplier(v:any){openSupplier(v)}
   function closeSupplier(){editing.supplier=null;Object.keys(supplierForm).forEach(k=>supplierForm[k]='');modal.value=null}
   async function removeSupplier(v:any){const result=await Swal.fire({icon:'warning',title:`Hapus ${v.name}?`,showCancelButton:true,confirmButtonText:'Hapus',cancelButtonText:'Batal',confirmButtonColor:'#b8322a'});if(result.isConfirmed)await submit(()=>api.deleteSupplier(v.id),'Supplier berhasil dihapus',[loadSuppliers])}
+  async function restoreDeletedSupplier(){const rows=await api.deletedSuppliers();if(!rows.length){await Swal.fire({icon:'info',title:'Tidak ada supplier terhapus'});return}const result=await Swal.fire({title:'Pulihkan supplier',width:'min(720px, calc(100vw - 32px))',padding:'2rem',customClass:{popup:'restore-dialog',input:'restore-dialog-input'},input:'select',inputOptions:Object.fromEntries(rows.map((v:any)=>[v.id,`${v.code} · ${v.name}`])),inputPlaceholder:'Pilih supplier',showCancelButton:true,confirmButtonText:'Pulihkan',cancelButtonText:'Batal',inputValidator:(v)=>v?undefined:'Pilih supplier terlebih dahulu'});if(result.isConfirmed)await submit(()=>api.restoreSupplier(Number(result.value)),'Supplier berhasil dipulihkan',[loadSuppliers])}
 
   watch(()=>supplierForm.phone,v=>{const clean=String(v||'').replace(/\D/g,'');if(v!==clean)supplierForm.phone=clean})
 
-  return {supplierForm,supplierImport,filteredSuppliers,loadSuppliers,saveSupplier,openSupplier,editSupplier,closeSupplier,removeSupplier}
+  return {supplierForm,supplierImport,filteredSuppliers,loadSuppliers,saveSupplier,openSupplier,editSupplier,closeSupplier,removeSupplier,restoreDeletedSupplier}
 }

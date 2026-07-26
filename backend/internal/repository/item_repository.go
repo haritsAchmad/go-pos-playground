@@ -21,6 +21,7 @@ type ItemRepository struct {
 }
 
 var ErrItemNotFound = errors.New("item not found")
+var ErrItemRestoreConflict = errors.New("item SKU is already used by an active item")
 
 func NewItemRepository(db *pgxpool.Pool, schema string) *ItemRepository {
 	return &ItemRepository{
@@ -310,5 +311,35 @@ func (r *ItemRepository) Delete(
 		return ErrItemNotFound
 	}
 
+	return nil
+}
+
+func (r *ItemRepository) FindDeleted(ctx context.Context) ([]entity.Items, error) {
+	return r.find(ctx, " WHERE i.deleted_at IS NOT NULL", " ORDER BY i.deleted_at DESC, i.id DESC", "", nil)
+}
+
+func (r *ItemRepository) Restore(ctx context.Context, id int) error {
+	var conflict bool
+	if err := r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1 FROM %s.items deleted
+			JOIN %s.items active ON active.sku=deleted.sku
+			WHERE deleted.id=$1 AND deleted.deleted_at IS NOT NULL
+			  AND active.deleted_at IS NULL AND active.id<>deleted.id
+		)`, r.schema, r.schema), id).Scan(&conflict); err != nil {
+		return err
+	}
+	if conflict {
+		return ErrItemRestoreConflict
+	}
+	tag, err := r.db.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.items SET deleted_at=NULL,updated_at=NOW()
+		WHERE id=$1 AND deleted_at IS NOT NULL`, r.schema), id)
+	if err != nil {
+		return ErrItemRestoreConflict
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrItemNotFound
+	}
 	return nil
 }

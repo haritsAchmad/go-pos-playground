@@ -55,6 +55,37 @@ func (h *SupplierHandler) FindAll(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, http.StatusOK, "suppliers fetched successfully", suppliers)
 }
 
+func (h *SupplierHandler) FindDeleted(w http.ResponseWriter, r *http.Request) {
+	suppliers, err := h.supplierRepo.FindDeleted(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to get deleted suppliers")
+		return
+	}
+	response.Success(w, http.StatusOK, "deleted suppliers fetched successfully", suppliers)
+}
+
+func (h *SupplierHandler) Restore(w http.ResponseWriter, r *http.Request) {
+	id, err := getIDFromPath(r.URL.Path)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid supplier id")
+		return
+	}
+	err = h.supplierRepo.Restore(r.Context(), id)
+	if errors.Is(err, repository.ErrSupplierNotFound) {
+		response.Error(w, http.StatusNotFound, "deleted supplier not found")
+		return
+	}
+	if errors.Is(err, repository.ErrSupplierRestoreConflict) {
+		response.Error(w, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to restore supplier")
+		return
+	}
+	response.Success(w, http.StatusOK, "supplier restored successfully", nil)
+}
+
 func (h *SupplierHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req dto.CreateSupplierRequest
 

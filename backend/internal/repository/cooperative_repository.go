@@ -184,6 +184,36 @@ func (r *CooperativeRepository) DeleteCustomer(ctx context.Context, id int64) er
 	return err
 }
 
+func (r *CooperativeRepository) DeletedCustomers(ctx context.Context) ([]entity.Customer, error) {
+	return r.customers(ctx, " WHERE c.deleted_at IS NOT NULL", " ORDER BY c.deleted_at DESC, c.id DESC", "", nil)
+}
+
+func (r *CooperativeRepository) RestoreCustomer(ctx context.Context, id int64) error {
+	var conflict bool
+	if err := r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1 FROM %s.customers deleted
+			JOIN %s.customers active ON active.code=deleted.code
+			WHERE deleted.id=$1 AND deleted.deleted_at IS NOT NULL
+			  AND active.deleted_at IS NULL AND active.id<>deleted.id
+		)`, r.schema, r.schema), id).Scan(&conflict); err != nil {
+		return err
+	}
+	if conflict {
+		return errors.New("kode pelanggan sudah digunakan data aktif")
+	}
+	tag, err := r.db.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customers SET deleted_at=NULL,updated_at=NOW()
+		WHERE id=$1 AND deleted_at IS NOT NULL AND code<>'UMUM'`, r.schema), id)
+	if err != nil {
+		return errors.New("kode pelanggan sudah digunakan data aktif")
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("pelanggan terhapus tidak ditemukan")
+	}
+	return nil
+}
+
 // mergeTransactionItems makes stock validation and mutation use the total quantity
 // when the same item was accidentally entered more than once.
 func mergeTransactionItems(items []entity.TransactionLine) ([]entity.TransactionLine, error) {
