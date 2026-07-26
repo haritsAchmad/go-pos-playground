@@ -180,6 +180,49 @@ func (h *CooperativeHandler) RestoreCustomer(w http.ResponseWriter, r *http.Requ
 	response.Success(w, 200, "pelanggan berhasil dipulihkan", nil)
 }
 
+func (h *CooperativeHandler) BulkSoftDeleteRestore(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if r.Method != http.MethodPost || len(parts) != 3 || parts[0] != "bulk" ||
+		(parts[2] != "delete" && parts[2] != "restore") {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req entity.BulkRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil || len(req.IDs) == 0 || len(req.IDs) > 100 {
+		response.Error(w, http.StatusBadRequest, "pilih 1 sampai 100 data")
+		return
+	}
+	seen := make(map[int64]bool, len(req.IDs))
+	ids := make([]int64, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		response.Error(w, http.StatusBadRequest, "ID data tidak valid")
+		return
+	}
+	targets := make([]string, len(ids))
+	for i, id := range ids {
+		targets[i] = strconv.FormatInt(id, 10)
+	}
+	w.Header().Set("X-Audit-Targets", strings.Join(targets, ","))
+	var result entity.BulkResult
+	if parts[2] == "delete" {
+		result = h.repo.BulkSoftDelete(r.Context(), parts[1], ids)
+	} else {
+		result = h.repo.BulkRestore(r.Context(), parts[1], ids)
+	}
+	if len(result.Results) == 0 {
+		response.Error(w, http.StatusBadRequest, "jenis data tidak valid")
+		return
+	}
+	response.Success(w, http.StatusOK, "bulk action completed", result)
+}
+
 func (h *CooperativeHandler) CustomerDetail(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/customers/"), 10, 64)
 	if err != nil {

@@ -56,6 +56,9 @@ func Audit(store AuditStore, next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		entityType, entityID := auditTarget(r.URL.Path)
+		if targets := writer.Header().Get("X-Audit-Targets"); targets != "" {
+			entityID = targets
+		}
 		_ = store.Record(r.Context(), entity.AuditEntry{
 			UserID: userID, UserName: claims.Name, UserEmail: claims.Email,
 			Action:     auditAction(r.Method, r.URL.Path),
@@ -67,6 +70,12 @@ func Audit(store AuditStore, next http.HandlerFunc) http.HandlerFunc {
 }
 
 func auditAction(method, path string) string {
+	if strings.HasPrefix(path, "/bulk/") {
+		if strings.HasSuffix(path, "/restore") {
+			return "BULK_RESTORE"
+		}
+		return "BULK_DELETE"
+	}
 	if strings.HasSuffix(path, "/void") {
 		return "VOID"
 	}
@@ -86,6 +95,9 @@ func auditTarget(path string) (string, string) {
 		return "unknown", ""
 	}
 	entityType := parts[0]
+	if entityType == "bulk" && len(parts) > 1 {
+		entityType = parts[1]
+	}
 	if entityType == "masters" && len(parts) > 1 {
 		entityType += "/" + parts[1]
 	}

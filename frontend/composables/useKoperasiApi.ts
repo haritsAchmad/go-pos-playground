@@ -87,6 +87,8 @@ export function useKoperasiApi() {
     updateCustomer: (id: number, body: any) => request(`/customers/${id}`, { method: 'PUT', body }),
     deleteCustomer: (id: number) => request(`/customers/${id}`, { method: 'DELETE' }),
     restoreCustomer: (id: number) => request(`/customers/${id}/restore`, { method: 'POST' }),
+    bulkDelete: (table: 'items'|'customers'|'suppliers', ids: number[]) => request<any>(`/bulk/${table}/delete`, { method: 'POST', body: { ids } }),
+    bulkRestore: (table: 'items'|'customers'|'suppliers', ids: number[]) => request<any>(`/bulk/${table}/restore`, { method: 'POST', body: { ids } }),
     createMaster: (name: string, body: any) => request(`/masters/${name}`, { method: 'POST', body }),
     updateMaster: (table: string, id: number, body: any) => request(`/masters/${table}/${id}`, { method: 'PUT', body }),
     deleteMaster: (table: string, id: number) => request(`/masters/${table}/${id}`, { method: 'DELETE' }),

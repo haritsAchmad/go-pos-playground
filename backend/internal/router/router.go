@@ -52,6 +52,7 @@ func New(
 	mux.HandleFunc("/users", protect(authHandler.Users, "admin"))
 	mux.HandleFunc("/users/", protect(authHandler.UserDetail, "admin"))
 	mux.HandleFunc("/audit-logs", protect(auditHandler.List, "admin"))
+	mux.HandleFunc("/bulk/", protect(cooperativeHandler.BulkSoftDeleteRestore, "admin", "cashier"))
 	mux.HandleFunc("/items", func(
 		w http.ResponseWriter,
 		r *http.Request,

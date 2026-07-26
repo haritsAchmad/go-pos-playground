@@ -214,6 +214,49 @@ func (r *CooperativeRepository) RestoreCustomer(ctx context.Context, id int64) e
 	return nil
 }
 
+func (r *CooperativeRepository) BulkSoftDelete(ctx context.Context, table string, ids []int64) entity.BulkResult {
+	result := entity.BulkResult{Results: make([]entity.BulkItemResult, 0, len(ids))}
+	allowed := map[string]bool{"items": true, "customers": true, "suppliers": true}
+	if !allowed[table] {
+		return result
+	}
+	protected := ""
+	if table == "customers" {
+		protected = " AND code<>'UMUM'"
+	}
+	for _, id := range ids {
+		tag, err := r.db.Exec(ctx, fmt.Sprintf(`UPDATE %s.%s SET deleted_at=NOW(),updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL%s`, r.schema, table, protected), id)
+		item := entity.BulkItemResult{ID: id, Success: err == nil && tag.RowsAffected() == 1}
+		if !item.Success {
+			item.Message = "data tidak ditemukan, dilindungi, atau sudah terhapus"
+		}
+		result.Results = append(result.Results, item)
+	}
+	return result
+}
+
+func (r *CooperativeRepository) BulkRestore(ctx context.Context, table string, ids []int64) entity.BulkResult {
+	result := entity.BulkResult{Results: make([]entity.BulkItemResult, 0, len(ids))}
+	keyColumns := map[string]string{"items": "sku", "customers": "code", "suppliers": "code"}
+	key, allowed := keyColumns[table]
+	if !allowed {
+		return result
+	}
+	for _, id := range ids {
+		tag, err := r.db.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.%s deleted SET deleted_at=NULL,updated_at=NOW()
+			WHERE deleted.id=$1 AND deleted.deleted_at IS NOT NULL
+			  AND NOT EXISTS (SELECT 1 FROM %s.%s active WHERE active.%s=deleted.%s AND active.deleted_at IS NULL AND active.id<>deleted.id)
+		`, r.schema, table, r.schema, table, key, key), id)
+		item := entity.BulkItemResult{ID: id, Success: err == nil && tag.RowsAffected() == 1}
+		if !item.Success {
+			item.Message = "data tidak ditemukan atau kode/SKU sudah digunakan data aktif"
+		}
+		result.Results = append(result.Results, item)
+	}
+	return result
+}
+
 // mergeTransactionItems makes stock validation and mutation use the total quantity
 // when the same item was accidentally entered more than once.
 func mergeTransactionItems(items []entity.TransactionLine) ([]entity.TransactionLine, error) {

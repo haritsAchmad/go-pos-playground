@@ -83,6 +83,7 @@ func Migrate(ctx context.Context, db *pgxpool.Pool, schema string) error {
 		)`, qualifiedSchema),
 		fmt.Sprintf(`ALTER TABLE %s.audit_logs ADD COLUMN IF NOT EXISTS user_name VARCHAR(100) NOT NULL DEFAULT ''`, qualifiedSchema),
 		fmt.Sprintf(`ALTER TABLE %s.audit_logs ADD COLUMN IF NOT EXISTS user_email VARCHAR(255) NOT NULL DEFAULT ''`, qualifiedSchema),
+		fmt.Sprintf(`ALTER TABLE %s.audit_logs ALTER COLUMN entity_id TYPE VARCHAR(1000)`, qualifiedSchema),
 		fmt.Sprintf(`UPDATE %s.audit_logs a
 			SET user_name=CASE WHEN a.user_name='' THEN u.name ELSE a.user_name END,
 				user_email=CASE WHEN a.user_email='' THEN u.email ELSE a.user_email END
