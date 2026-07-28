@@ -18,6 +18,49 @@ Aplikasi point of sale dan operasional koperasi dengan REST API Go, PostgreSQL, 
 - CRUD pengguna khusus admin
 - Soft delete untuk barang, pelanggan, dan supplier
 
+## Preview aplikasi
+
+### Dashboard operasional
+
+Ringkasan pemasukan, pengeluaran, piutang, kondisi stok, dan grafik penjualan
+dalam satu tampilan.
+
+![Dashboard operasional Go POS Playground](docs/screenshots/dashboard.png)
+
+<table>
+  <tr>
+    <td width="50%">
+      <strong>Transaksi kasir</strong><br>
+      Penjualan, pemilihan pelanggan, metode pembayaran, dan perhitungan
+      kembalian.
+    </td>
+    <td width="50%">
+      <strong>Persediaan barang</strong><br>
+      Pencarian, filter stok, import/export Excel, serta histori pergerakan
+      barang.
+    </td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/kasir.png" alt="Transaksi kasir"></td>
+    <td><img src="docs/screenshots/barang.png" alt="Daftar dan stok barang"></td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <strong>Histori transaksi</strong><br>
+      Pelacakan penjualan dan pembelian, cetak struk, perubahan, serta
+      pembatalan transaksi.
+    </td>
+    <td width="50%">
+      <strong>Pengelolaan piutang</strong><br>
+      Pencatatan cicilan, pelunasan massal, dan histori pembayaran pelanggan.
+    </td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/histori.png" alt="Histori transaksi"></td>
+    <td><img src="docs/screenshots/piutang.png" alt="Pengelolaan piutang"></td>
+  </tr>
+</table>
+
 ## Tech stack
 
 - Go 1.26 dan Standard Library `net/http`
