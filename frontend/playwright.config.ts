@@ -25,9 +25,28 @@ export default defineConfig({
   projects: [
     { name: 'setup', testMatch: /global\.setup\.ts/ },
     {
-      name: 'authorization',
+      name: 'chromium',
       testIgnore: /global\.setup\.ts/,
       dependencies: ['setup'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'google-chrome',
+      testIgnore: /global\.setup\.ts/,
+      dependencies: ['setup'],
+      use: { ...devices['Desktop Chrome'], channel: 'chrome' },
+    },
+    {
+      name: 'microsoft-edge',
+      testIgnore: /global\.setup\.ts/,
+      dependencies: ['setup'],
+      use: { ...devices['Desktop Edge'], channel: 'msedge' },
+    },
+    {
+      name: 'firefox',
+      testIgnore: /global\.setup\.ts/,
+      dependencies: ['setup'],
+      use: { ...devices['Desktop Firefox'] },
     },
   ],
 })

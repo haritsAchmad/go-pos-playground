@@ -56,18 +56,19 @@ func (r *AuthRepository) SeedAdmin(ctx context.Context, name, email, password st
 	return err
 }
 
-func (r *AuthRepository) CreateSession(ctx context.Context, userID int64, tokenHash string, expiresAt time.Time) error {
-	_, err := r.db.Exec(ctx, fmt.Sprintf(
-		`INSERT INTO %s.auth_sessions(user_id,token_hash,expires_at) VALUES($1,$2,$3)`,
+func (r *AuthRepository) CreateSession(ctx context.Context, userID int64, tokenHash string, expiresAt time.Time) (int64, error) {
+	var sessionID int64
+	err := r.db.QueryRow(ctx, fmt.Sprintf(
+		`INSERT INTO %s.auth_sessions(user_id,token_hash,expires_at) VALUES($1,$2,$3) RETURNING id`,
 		r.schema,
-	), userID, tokenHash, expiresAt)
-	return err
+	), userID, tokenHash, expiresAt).Scan(&sessionID)
+	return sessionID, err
 }
 
-func (r *AuthRepository) RotateSession(ctx context.Context, oldHash, newHash string, expiresAt time.Time) (*entity.User, error) {
+func (r *AuthRepository) RotateSession(ctx context.Context, oldHash, newHash string, expiresAt time.Time) (*entity.User, int64, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer tx.Rollback(ctx)
 
@@ -86,13 +87,13 @@ func (r *AuthRepository) RotateSession(ctx context.Context, oldHash, newHash str
 		&user.ID, &user.Name, &user.Email, &user.Role, &user.Active,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrInvalidSession
+		return nil, 0, ErrInvalidSession
 	}
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if revokedAt != nil || !currentExpiry.After(time.Now()) || !user.Active {
-		return nil, ErrInvalidSession
+		return nil, 0, ErrInvalidSession
 	}
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.auth_sessions
@@ -100,21 +101,33 @@ func (r *AuthRepository) RotateSession(ctx context.Context, oldHash, newHash str
 		WHERE id=$2 AND revoked_at IS NULL
 	`, r.schema), newHash, sessionID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if tag.RowsAffected() != 1 {
-		return nil, ErrInvalidSession
+		return nil, 0, ErrInvalidSession
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+	var nextSessionID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.auth_sessions(user_id,token_hash,expires_at)
-		VALUES($1,$2,$3)
-	`, r.schema), user.ID, newHash, expiresAt); err != nil {
-		return nil, err
+		VALUES($1,$2,$3) RETURNING id
+	`, r.schema), user.ID, newHash, expiresAt).Scan(&nextSessionID); err != nil {
+		return nil, 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return &user, nil
+	return &user, nextSessionID, nil
+}
+
+func (r *AuthRepository) IsSessionActive(ctx context.Context, sessionID, userID int64) (bool, error) {
+	var active bool
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1 FROM %s.auth_sessions
+			WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL AND expires_at>NOW()
+		)
+	`, r.schema), sessionID, userID).Scan(&active)
+	return active, err
 }
 
 func (r *AuthRepository) RevokeSession(ctx context.Context, tokenHash string) error {

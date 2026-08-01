@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { FullResult, Reporter, TestCase, TestResult } from '@playwright/test/reporter'
 
 type Finding = {
+  browser: string
   endpoint: string
   account: string
   expected: string
@@ -19,10 +20,11 @@ export default class SecurityReporter implements Reporter {
     if (result.status === test.expectedStatus) return
     const annotations = new Map(result.annotations.map(item => [item.type, item.description || '']))
     this.findings.push({
+      browser: test.parent.project()?.name || 'unknown',
       endpoint: annotations.get('endpoint') || test.title,
       account: annotations.get('account') || 'multiple/see test title',
       expected: annotations.get('expected') || test.expectedStatus,
-      actual: `${result.status}: ${result.error?.message?.split('\n')[0] || 'no error message'}`,
+      actual: annotations.get('actual') || `${result.status}: ${result.error?.message?.replace(/\r?\n/g, ' ') || 'no error message'}`,
       risk: annotations.get('risk') || 'medium',
       rootCause: annotations.get('root_cause_hint') || 'Inspect the failing trace and authorization middleware.',
       artifact: result.attachments.map(item => item.path).filter(Boolean).join(', ') || 'See Playwright HTML report',
@@ -53,9 +55,9 @@ export default class SecurityReporter implements Reporter {
     if (!this.findings.length) {
       lines.push('No authorization expectation failures were detected.')
     } else {
-      lines.push('| Endpoint | Account | Expected | Actual | Risk | Likely root cause | Artifacts |', '|---|---|---|---|---|---|---|')
+      lines.push('| Browser | Endpoint/UI route | Account | Expected | Actual / status code | Risk | Likely root cause | Artifacts |', '|---|---|---|---|---|---|---|---|')
       for (const finding of this.findings) {
-        lines.push(`| ${escape(finding.endpoint)} | ${escape(finding.account)} | ${escape(finding.expected)} | ${escape(finding.actual)} | ${escape(finding.risk)} | ${escape(finding.rootCause)} | ${escape(finding.artifact)} |`)
+        lines.push(`| ${escape(finding.browser)} | ${escape(finding.endpoint)} | ${escape(finding.account)} | ${escape(finding.expected)} | ${escape(finding.actual)} | ${escape(finding.risk)} | ${escape(finding.rootCause)} | ${escape(finding.artifact)} |`)
       }
     }
     lines.push(

@@ -58,18 +58,19 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusForbidden, "account is inactive")
 		return
 	}
-	token, expiresAt, err := h.tokens.Issue(u.ID, u.Name, u.Email, u.Role)
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, "failed to create access token")
-		return
-	}
 	refreshToken, refreshHash, refreshExpiresAt, err := h.refreshTokens.Issue()
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to create session")
 		return
 	}
-	if err := h.repo.CreateSession(r.Context(), u.ID, refreshHash, refreshExpiresAt); err != nil {
+	sessionID, err := h.repo.CreateSession(r.Context(), u.ID, refreshHash, refreshExpiresAt)
+	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+	token, expiresAt, err := h.tokens.Issue(u.ID, sessionID, u.Name, u.Email, u.Role)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to create access token")
 		return
 	}
 	h.setRefreshCookie(w, r, refreshToken, h.refreshTokens.MaxAge())
@@ -87,7 +88,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "failed to rotate session")
 		return
 	}
-	user, err := h.repo.RotateSession(r.Context(), auth.HashRefreshToken(cookie.Value), nextHash, refreshExpiresAt)
+	user, sessionID, err := h.repo.RotateSession(r.Context(), auth.HashRefreshToken(cookie.Value), nextHash, refreshExpiresAt)
 	if errors.Is(err, repository.ErrInvalidSession) {
 		h.setRefreshCookie(w, r, "", -1)
 		response.Error(w, http.StatusUnauthorized, "refresh session expired or invalid")
@@ -97,7 +98,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "failed to rotate session")
 		return
 	}
-	token, expiresAt, err := h.tokens.Issue(user.ID, user.Name, user.Email, user.Role)
+	token, expiresAt, err := h.tokens.Issue(user.ID, sessionID, user.Name, user.Email, user.Role)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "failed to refresh access token")
 		return

@@ -1,11 +1,34 @@
 # Authorization audit
 
-Date: 2026-07-31
+Date: 2026-08-01
 
-Scope: static review of the Go router/middleware and Nuxt route behavior, plus
-the automated Playwright suite in `frontend/e2e/authorization/`. No runtime
-account was created and no business data was touched because the available
-local schema was not established as disposable test data.
+Scope: static review plus a complete runtime Playwright authorization run
+against a disposable PostgreSQL 17 instance. The temporary server listened on
+`127.0.0.1:55432`, used database `go_pos_authz_e2e_20260801_fix` and schema
+`authz_e2e`, and was stopped and deleted after the run. The application,
+development, staging, and production databases/schemas were not used. No
+non-test business data was changed.
+
+## Runtime summary
+
+| Browser/project | Registered and run | Passed | Failed | Skipped |
+|---|---:|---:|---:|---:|
+| Setup | 1 | 1 | 0 | 0 |
+| Playwright Chromium | 122 | 122 | 0 | 0 |
+| Google Chrome (installed) | 122 | 122 | 0 | 0 |
+| Microsoft Edge (installed) | 122 | 122 | 0 | 0 |
+| Playwright Firefox | 122 | 122 | 0 | 0 |
+| **Total** | **489** | **489** | **0** | **0** |
+
+All requested browsers were available and executed; none were skipped. The
+run took approximately 8.1 minutes. All direct API authorization matrices,
+anonymous checks, role allow/deny checks, sentinel resource-ID substitutions,
+expired-token checks, logout replay checks, post-logout UI checks, and direct
+UI route navigation checks passed.
+
+Runtime artifacts are retained in `frontend/test-results/authz/`: the generated
+`authorization-audit.md`, `results.json`, and the HTML report. No failure
+screenshot, video, or trace was produced by the passing final run.
 
 ## Policy inventory
 
@@ -22,7 +45,7 @@ The complete method/path/role inventory is executable in
 The requested personas are represented without changing the application
 policy: `superadmin -> admin`, `manager -> viewer`, and `cashier -> cashier`.
 
-## Static findings
+## Resolved findings
 
 ### AUTHZ-001 — access-token replay after logout
 
@@ -31,14 +54,12 @@ policy: `superadmin -> admin`, `manager -> viewer`, and `cashier -> cashier`.
 | Endpoint | `POST /auth/logout`, followed by any protected endpoint such as `GET /auth/me` |
 | Account | Any authenticated account; automated case uses cashier |
 | Expected | Reusing the logged-out session/token is rejected with `401` |
-| Actual | Logout revokes the refresh token only. The existing stateless access token remains accepted until its configured expiry. |
+| Actual | Logout returns `200`; both refresh replay and `GET /auth/me` with the old access token now return `401`. Verified in all four browsers/projects. |
 | Risk | High when a token has been copied or stolen; exposure is bounded by `JWT_EXPIRY_MINUTES` |
-| Likely root cause | Access JWTs have no server-side session identifier/revocation check; authentication checks signature, expiry, and current user state only |
+| Resolution | Access JWTs now carry `auth_sessions.id` as `sid`; authentication requires that session to match the user and remain unexpired and unrevoked. Logout and refresh revoke the prior session. |
 
-This is also described in the current README, so it is an architectural
-limitation rather than a newly introduced regression. The Playwright session
-test deliberately fails and records trace/screenshot/report artifacts while
-this behavior remains.
+Status: **resolved**. A token without `sid`, with a foreign `sid`, or with a
+revoked/expired session is rejected before the protected handler.
 
 ### AUTHZ-002 — hidden UI routes have no role-level navigation guard
 
@@ -47,13 +68,12 @@ this behavior remains.
 | Endpoint | UI routes `/pelanggan`, `/supplier`, `/kasir`, `/pembelian`, `/histori`, `/piutang`, `/pengaturan`, `/pengguna`, and `/audit` |
 | Account | manager persona (`viewer` application role); cashier on `/pengguna` and `/audit` |
 | Expected | Direct navigation to a route hidden for that role redirects away or renders a forbidden page |
-| Actual | `auth.global.ts` checks token presence only. Direct URL navigation remains on the hidden route. Backend API authorization still protects privileged responses. |
+| Actual | Direct navigation validates the current session and role, then redirects disallowed roles to `/`. Verified in all four browsers: manager on nine routes, plus cashier on `/pengguna` and `/audit`. |
 | Risk | Medium for UI policy inconsistency; backend RBAC limits the direct security impact |
-| Likely root cause | Navigation visibility is implemented in `KoperasiConsole.vue`, but the same role policy is not enforced by route middleware |
+| Resolution | `frontend/utils/authorization.ts` is shared by `auth.global.ts` and `KoperasiConsole.vue`; menu visibility and direct navigation enforce the same roles. |
 
-For several read endpoints the backend intentionally allows `viewer`, so direct
-navigation can reveal data that the navigation hides. For admin-only users and
-audit APIs, the page remains addressable but its API request receives `403`.
+Status: **resolved**. Backend API policy remains unchanged; this enforces the
+existing UI policy rather than granting or removing API permissions.
 
 ### AUTHZ-003 — no owner/tenant boundary exists for object-level checks
 
@@ -72,7 +92,9 @@ boundary.
 
 ## Runtime artifacts
 
-After running against an isolated test database, generated findings are written
-to `frontend/test-results/authz/authorization-audit.md`. Failure screenshots,
-videos, and traces are retained below `frontend/test-results/authz/artifacts/`;
-HTML and JSON reports are generated alongside them.
+Generated findings are in `frontend/test-results/authz/authorization-audit.md`.
+Failure screenshots, videos, and traces are retained below
+`frontend/test-results/authz/artifacts/`; HTML and JSON reports are generated
+alongside them. Each generated failure row includes browser, endpoint or UI
+route, persona, expected/actual result, risk, root-cause hint, and artifact
+paths.

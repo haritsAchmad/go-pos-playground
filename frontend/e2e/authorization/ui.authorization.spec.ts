@@ -28,7 +28,11 @@ for (const route of uiRoutes) {
         await page.getByLabel('Password').fill(accountPassword)
         await page.getByRole('button', { name: /masuk/i }).click()
         await expect(page).toHaveURL('/')
-        await page.goto(route.path)
+        const navigation = await page.goto(route.path)
+        test.info().annotations.push({
+          type: 'actual',
+          description: `document HTTP ${navigation?.status() ?? 'unknown'}; final URL ${page.url()}`,
+        })
         if (route.allowed.includes(persona)) {
           await expect(page).toHaveURL(new RegExp(`${route.path === '/' ? '/$' : `${route.path}$`}`))
           await expect(page.locator('body')).not.toContainText('you do not have permission')

@@ -29,7 +29,18 @@ visible rather than changing production authorization to make tests pass.
 
 ## Run
 
-Start the backend and frontend against a test database. Then:
+Start the backend and frontend against a test database. The verified local run
+used a temporary PostgreSQL 17 instance whose data directory lived below the
+ignored repository `tmp/` directory, listened only on `127.0.0.1:55432`, and
+was deleted after the run. The application database name used the guarded
+`go_pos_authz_e2e_` prefix. The existing application/development PostgreSQL
+instance, database, and schema were not used.
+
+The `backend/cmd/e2edb` helper creates and drops only database names beginning
+with `go_pos_authz_e2e_`; it refuses an existing database on create so a test
+run cannot silently reuse non-disposable state.
+
+Then:
 
 ```powershell
 Set-Location frontend
@@ -41,6 +52,10 @@ $env:E2E_ACCOUNT_PASSWORD='dedicated test-account password'
 $env:E2E_JWT_SECRET='JWT secret used only by the isolated test backend'
 npm run test:authz
 ```
+
+The Playwright projects run bundled Chromium, installed Google Chrome,
+installed Microsoft Edge, and bundled Firefox. A setup project provisions the
+three personas once before the browser projects.
 
 Do not put these credentials in Git. `E2E_JWT_SECRET` lets the suite construct a
 genuinely expired but correctly signed access token; it must be the secret of

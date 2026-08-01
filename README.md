@@ -196,7 +196,8 @@ panjang tidak dapat dibaca JavaScript:
 - Ketika request API dilakukan dan access token mendekati atau melewati masa kedaluwarsa, frontend memanggil `POST /auth/refresh`.
 - Request paralel berbagi proses refresh yang sama agar tidak menerbitkan banyak token sekaligus.
 - Setiap refresh memutar token: token lama dicabut dan hanya hash token yang disimpan di tabel `auth_sessions`.
-- Logout mencabut refresh session aktif dan menghapus cookie. Access token yang sudah diterbitkan tetap berumur pendek serta tidak dapat dipakai jika akun dinonaktifkan atau dihapus.
+- Access token membawa ID session server-side. Setiap request terlindungi memverifikasi bahwa session masih aktif, belum kedaluwarsa, dan dimiliki user yang sama.
+- Logout mencabut session aktif dan menghapus cookie, sehingga access token maupun refresh token dari session tersebut langsung tidak dapat digunakan kembali.
 - Session berakhir setelah `REFRESH_TOKEN_EXPIRY_DAYS` atau ketika dicabut. Mengubah masa berlaku token memerlukan restart backend.
 
 ### Role dan akses
@@ -222,7 +223,7 @@ Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri. Sta
 | `GET` | `/health` | Health check publik |
 | `POST` | `/auth/login` | Login |
 | `POST` | `/auth/refresh` | Putar refresh session dan terbitkan access token baru |
-| `POST` | `/auth/logout` | Cabut refresh session aktif |
+| `POST` | `/auth/logout` | Cabut session aktif beserta access dan refresh token terkait |
 | `GET` | `/auth/me` | Profil pengguna aktif |
 | `GET, POST` | `/users` | Daftar dan tambah pengguna |
 | `PUT, DELETE` | `/users/{id}` | Ubah dan hapus pengguna |

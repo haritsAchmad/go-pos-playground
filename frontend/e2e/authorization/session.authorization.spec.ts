@@ -15,6 +15,7 @@ test('direct API access is rejected after logout and refresh session is revoked'
   expect((await request.post('/api/auth/logout')).status()).toBe(200)
   // Current documented architecture does not revoke already-issued access JWTs.
   const replay = await request.get('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+  test.info().annotations.push({ type: 'actual', description: `access-token replay HTTP ${replay.status()}` })
   expect(replay.status(), 'access-token replay after logout should be rejected').toBe(401)
   expect((await request.post('/api/auth/refresh')).status()).toBe(401)
 })

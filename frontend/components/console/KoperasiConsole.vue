@@ -16,10 +16,7 @@ const allNav = [
   ['dashboard', 'Dashboard', '/'], ['items', 'Barang', '/barang'], ['customers', 'Pelanggan', '/pelanggan'], ['suppliers', 'Supplier', '/supplier'],
   ['sale', 'Kasir', '/kasir'], ['purchase', 'Pembelian', '/pembelian'], ['history', 'Histori', '/histori'], ['debts', 'Piutang', '/piutang'], ['masters', 'Pengaturan Barang', '/pengaturan'], ['users', 'Pengguna', '/pengguna'], ['audit', 'Audit Log', '/audit'],
 ]
-const nav = computed(()=>allNav.filter(([key])=>{
-  if(['users','audit'].includes(key))return currentUser.value?.role==='admin'
-  return currentUser.value?.role!=='viewer'||['dashboard','items'].includes(key)
-}))
+const nav = computed(()=>allNav.filter(([, , path])=>isUIRouteAllowed(path, currentUser.value?.role || '')))
 const routeKey = () => allNav.find((item)=>item[2]===route.path)?.[0] || 'dashboard'
 const active = ref(routeKey())
 const loading = ref(false)

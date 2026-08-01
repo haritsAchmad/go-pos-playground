@@ -76,15 +76,34 @@ func TestSessionRotationIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := NewAuthRepository(f.db, f.schema)
-	if err := repo.CreateSession(f.ctx, userID, "old-hash", time.Now().Add(time.Hour)); err != nil {
+	oldSessionID, err := repo.CreateSession(f.ctx, userID, "old-hash", time.Now().Add(time.Hour))
+	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := repo.RotateSession(f.ctx, "old-hash", "new-hash", time.Now().Add(2*time.Hour))
+	if active, err := repo.IsSessionActive(f.ctx, oldSessionID, userID); err != nil || !active {
+		t.Fatalf("new session active=%v err=%v", active, err)
+	}
+	user, sessionID, err := repo.RotateSession(f.ctx, "old-hash", "new-hash", time.Now().Add(2*time.Hour))
 	if err != nil || user.ID != userID {
 		t.Fatalf("RotateSession() user=%+v err=%v", user, err)
 	}
-	if _, err := repo.RotateSession(f.ctx, "old-hash", "reused-hash", time.Now().Add(time.Hour)); !errors.Is(err, ErrInvalidSession) {
+	if sessionID < 1 {
+		t.Fatalf("RotateSession() sessionID=%d", sessionID)
+	}
+	if active, err := repo.IsSessionActive(f.ctx, oldSessionID, userID); err != nil || active {
+		t.Fatalf("rotated old session active=%v err=%v", active, err)
+	}
+	if active, err := repo.IsSessionActive(f.ctx, sessionID, userID); err != nil || !active {
+		t.Fatalf("rotated new session active=%v err=%v", active, err)
+	}
+	if _, _, err := repo.RotateSession(f.ctx, "old-hash", "reused-hash", time.Now().Add(time.Hour)); !errors.Is(err, ErrInvalidSession) {
 		t.Fatalf("reused refresh token error = %v, want ErrInvalidSession", err)
+	}
+	if err := repo.RevokeSession(f.ctx, "new-hash"); err != nil {
+		t.Fatal(err)
+	}
+	if active, err := repo.IsSessionActive(f.ctx, sessionID, userID); err != nil || active {
+		t.Fatalf("revoked session active=%v err=%v", active, err)
 	}
 	var activeSessions int
 	if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`
@@ -93,8 +112,8 @@ func TestSessionRotationIntegration(t *testing.T) {
 	`, q), userID).Scan(&activeSessions); err != nil {
 		t.Fatal(err)
 	}
-	if activeSessions != 1 {
-		t.Fatalf("active sessions = %d, want 1", activeSessions)
+	if activeSessions != 0 {
+		t.Fatalf("active sessions = %d, want 0", activeSessions)
 	}
 }
 
