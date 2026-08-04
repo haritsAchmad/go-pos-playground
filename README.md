@@ -396,3 +396,21 @@ Project ini dirancang, diarahkan, diuji, dan direview oleh Harits Achmad Fauzan.
 Copyright (c) 2026 Harits Achmad Fauzan. Project ini dilisensikan menggunakan [MIT License](LICENSE).
 
 Riwayat perubahan tersedia di [CHANGELOG.md](CHANGELOG.md), sedangkan arah pengembangan tersedia di [ROADMAP.md](ROADMAP.md).
+
+## Benchmark backend
+
+Benchmark repository PostgreSQL memakai schema sementara yang terisolasi dan hanya berjalan jika diaktifkan secara eksplisit. Konfigurasi database dibaca dari `backend/.env`; untuk keamanan, nama database harus `playground` atau `pos_playground`.
+
+Jalankan seluruh benchmark dari direktori `backend`:
+
+```powershell
+$env:GO_POS_INTEGRATION_TESTS = "1"
+go test ./internal/repository -run '^$' -bench 'Integration$' -benchmem -count 3
+```
+
+Benchmark yang tersedia:
+
+- `BenchmarkCreateSaleIntegration`: checkout lengkap, termasuk lock dan mutasi stok serta pencatatan stock movement.
+- `BenchmarkTransactionsPageIntegration`: pembacaan halaman pertama berisi 25 transaksi dari fixture 1.000 transaksi.
+
+Simpan output bersama spesifikasi CPU, versi Go, dan versi PostgreSQL ketika membandingkan perubahan. Angka dari mesin atau konfigurasi database yang berbeda tidak dapat dibandingkan langsung.

@@ -32,6 +32,7 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 - Bulk payment/settlement untuk beberapa piutang dengan histori pembayaran per piutang
 - Bulk reset stok terpilih ke 0 dengan stock movement per barang
 - Snackbar undo untuk soft delete barang, pelanggan, dan supplier
+- Benchmark PostgreSQL yang dapat direproduksi untuk checkout penjualan dan histori transaksi berhalaman
 
 ## 🟨 In Progress
 
@@ -39,7 +40,7 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 
 ## ⬜ Planned
 
-- Benchmark dan performance baseline
+- Perluasan performance baseline berdasarkan pertumbuhan data dan pola beban produksi
 - Docker dan deployment configuration
 - Redis untuk caching atau session support
 - Background job atau queue untuk proses berat

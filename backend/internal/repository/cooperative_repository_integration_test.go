@@ -133,7 +133,7 @@ type transactionFixture struct {
 	boxUnitID  int64
 }
 
-func newTransactionFixture(t *testing.T) *transactionFixture {
+func newTransactionFixture(t testing.TB) *transactionFixture {
 	t.Helper()
 	if os.Getenv("GO_POS_INTEGRATION_TESTS") != "1" {
 		t.Skip("set GO_POS_INTEGRATION_TESTS=1 to run PostgreSQL integration tests")
@@ -206,7 +206,7 @@ func (f *transactionFixture) request(kind string, quantity int, paid int64, debt
 	return request
 }
 
-func (f *transactionFixture) stock(t *testing.T) int {
+func (f *transactionFixture) stock(t testing.TB) int {
 	t.Helper()
 	var stock int
 	if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT stock FROM %s.items WHERE id=$1`, pgx.Identifier{f.schema}.Sanitize()), f.itemID).Scan(&stock); err != nil {
