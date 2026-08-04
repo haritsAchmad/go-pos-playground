@@ -33,6 +33,8 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 - Bulk reset stok terpilih ke 0 dengan stock movement per barang
 - Snackbar undo untuk soft delete barang, pelanggan, dan supplier
 - Benchmark PostgreSQL yang dapat direproduksi untuk checkout penjualan dan histori transaksi berhalaman
+- Nomor invoice berbasis sequence PostgreSQL dan integration test concurrent checkout
+- Idempotency key checkout dengan perlindungan retry paralel dan deteksi payload berbeda
 
 ## 🟨 In Progress
 

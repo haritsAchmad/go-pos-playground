@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -517,6 +518,140 @@ func TestStockMovementTraceIntegration(t *testing.T) {
 	}
 }
 
+func TestConcurrentCheckoutInvoiceAndStockIntegration(t *testing.T) {
+	f := newTransactionFixture(t)
+	q := pgx.Identifier{f.schema}.Sanitize()
+	const checkouts = 25
+	if _, err := f.db.Exec(f.ctx, fmt.Sprintf(`UPDATE %s.items SET stock=$1 WHERE id=$2`, q), checkouts, f.itemID); err != nil {
+		t.Fatalf("prepare checkout stock: %v", err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan entity.Transaction, checkouts)
+	errors := make(chan error, checkouts)
+	var workers sync.WaitGroup
+	for i := 0; i < checkouts; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			transaction, err := f.repository.CreateTransaction(f.ctx, f.request("SALE", 1, 1000, false))
+			if err != nil {
+				errors <- err
+				return
+			}
+			results <- transaction
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	close(errors)
+
+	for err := range errors {
+		t.Errorf("concurrent checkout: %v", err)
+	}
+	if t.Failed() {
+		return
+	}
+	invoices := make(map[string]struct{}, checkouts)
+	for transaction := range results {
+		if _, duplicate := invoices[transaction.InvoiceNo]; duplicate {
+			t.Errorf("duplicate invoice number %q", transaction.InvoiceNo)
+		}
+		invoices[transaction.InvoiceNo] = struct{}{}
+	}
+	if len(invoices) != checkouts {
+		t.Fatalf("unique invoices = %d, want %d", len(invoices), checkouts)
+	}
+	if stock := f.stock(t); stock != 0 {
+		t.Fatalf("stock after concurrent checkout = %d, want 0", stock)
+	}
+}
+
+func TestIdempotentCheckoutIntegration(t *testing.T) {
+	t.Run("same request only mutates stock once", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		request := f.request("SALE", 2, 2000, false)
+		request.IdempotencyKey = "checkout-retry-001"
+
+		first, err := f.repository.CreateTransaction(f.ctx, request)
+		if err != nil {
+			t.Fatalf("first checkout: %v", err)
+		}
+		replay, err := f.repository.CreateTransaction(f.ctx, request)
+		if err != nil {
+			t.Fatalf("replayed checkout: %v", err)
+		}
+		if replay.ID != first.ID || replay.InvoiceNo != first.InvoiceNo || !replay.IdempotencyReplay {
+			t.Fatalf("replay = %+v, want original transaction %+v marked as replay", replay, first)
+		}
+		if stock := f.stock(t); stock != 8 {
+			t.Fatalf("stock after replay = %d, want 8", stock)
+		}
+	})
+
+	t.Run("same key rejects different request", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		first := f.request("SALE", 1, 1000, false)
+		first.IdempotencyKey = "checkout-conflict-001"
+		if _, err := f.repository.CreateTransaction(f.ctx, first); err != nil {
+			t.Fatalf("first checkout: %v", err)
+		}
+		changed := f.request("SALE", 2, 2000, false)
+		changed.IdempotencyKey = first.IdempotencyKey
+		if _, err := f.repository.CreateTransaction(f.ctx, changed); !errors.Is(err, ErrIdempotencyConflict) {
+			t.Fatalf("conflicting checkout error = %v, want ErrIdempotencyConflict", err)
+		}
+		if stock := f.stock(t); stock != 9 {
+			t.Fatalf("stock after conflict = %d, want 9", stock)
+		}
+	})
+
+	t.Run("concurrent retries create one transaction", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		const retries = 10
+		start := make(chan struct{})
+		results := make(chan entity.Transaction, retries)
+		errors := make(chan error, retries)
+		var workers sync.WaitGroup
+		for i := 0; i < retries; i++ {
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				request := f.request("SALE", 1, 1000, false)
+				request.IdempotencyKey = "checkout-concurrent-001"
+				<-start
+				transaction, err := f.repository.CreateTransaction(f.ctx, request)
+				if err != nil {
+					errors <- err
+					return
+				}
+				results <- transaction
+			}()
+		}
+		close(start)
+		workers.Wait()
+		close(results)
+		close(errors)
+		for err := range errors {
+			t.Errorf("concurrent retry: %v", err)
+		}
+		var transactionID int64
+		for transaction := range results {
+			if transactionID == 0 {
+				transactionID = transaction.ID
+			}
+			if transaction.ID != transactionID {
+				t.Errorf("transaction ID = %d, want replay of %d", transaction.ID, transactionID)
+			}
+		}
+		if stock := f.stock(t); stock != 9 {
+			t.Fatalf("stock after concurrent retries = %d, want 9", stock)
+		}
+	})
+}
+
 func TestVersionedMigrationIntegration(t *testing.T) {
 	f := newTransactionFixture(t)
 	if err := database.Migrate(f.ctx, f.db, f.schema); err != nil {
@@ -525,11 +660,14 @@ func TestVersionedMigrationIntegration(t *testing.T) {
 	q := pgx.Identifier{f.schema}.Sanitize()
 	var count int
 	var name string
-	if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT COUNT(*),MAX(name) FROM %s.schema_migrations`, q)).Scan(&count, &name); err != nil {
+	if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.schema_migrations`, q)).Scan(&count); err != nil {
 		t.Fatalf("read migration ledger: %v", err)
 	}
-	if count != 1 || name != "baseline schema" {
-		t.Fatalf("migration ledger = %d/%q, want 1/baseline schema", count, name)
+	if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT name FROM %s.schema_migrations ORDER BY version DESC LIMIT 1`, q)).Scan(&name); err != nil {
+		t.Fatalf("read latest migration: %v", err)
+	}
+	if count != 3 || name != "transaction idempotency" {
+		t.Fatalf("migration ledger = %d/%q, want 3/transaction idempotency", count, name)
 	}
 }
 

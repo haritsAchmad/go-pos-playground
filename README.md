@@ -240,6 +240,8 @@ Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri. Sta
 | `POST` | `/transactions/{id}/void` | Batalkan transaksi |
 | `GET` | `/debts` | Daftar piutang |
 | `POST` | `/debts/{id}/payments` | Catat pembayaran piutang |
+
+Untuk mencegah transaksi ganda akibat retry jaringan, `POST /transactions` menerima header opsional `Idempotency-Key` sepanjang 8-128 karakter. Request ulang dengan key dan payload yang sama mengembalikan transaksi sebelumnya; penggunaan key yang sama untuk payload berbeda ditolak dengan HTTP `409 Conflict`. Frontend kasir mengirim key ini secara otomatis.
 | `GET, POST, PUT, DELETE` | `/masters/{name}` | Kelola master data |
 
 ### Pagination API

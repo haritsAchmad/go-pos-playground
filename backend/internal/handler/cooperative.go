@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -326,9 +327,23 @@ func (h *CooperativeHandler) Transactions(w http.ResponseWriter, r *http.Request
 			response.Error(w, 400, "invalid transaction data")
 			return
 		}
+		req.IdempotencyKey = strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+		if req.IdempotencyKey != "" && (len(req.IdempotencyKey) < 8 || len(req.IdempotencyKey) > 128 || !regexp.MustCompile(`^[A-Za-z0-9._:-]+$`).MatchString(req.IdempotencyKey)) {
+			response.Error(w, http.StatusBadRequest, "Idempotency-Key must be 8-128 safe characters")
+			return
+		}
 		data, err := h.repo.CreateTransaction(r.Context(), req)
 		if err != nil {
+			if errors.Is(err, repository.ErrIdempotencyConflict) {
+				response.Error(w, http.StatusConflict, err.Error())
+				return
+			}
 			response.Error(w, 400, err.Error())
+			return
+		}
+		if data.IdempotencyReplay {
+			w.Header().Set("Idempotency-Replayed", "true")
+			response.Success(w, http.StatusOK, "transaction already created", data)
 			return
 		}
 		response.Success(w, 201, "transaction created", data)

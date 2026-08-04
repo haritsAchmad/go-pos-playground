@@ -2,6 +2,9 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +17,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrIdempotencyConflict = errors.New("idempotency key has already been used with different transaction data")
 
 type CooperativeRepository struct {
 	db     *pgxpool.Pool
@@ -421,6 +426,15 @@ func (r *CooperativeRepository) resolveTransactionLine(ctx context.Context, tx p
 }
 
 func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entity.CreateTransactionRequest) (entity.Transaction, error) {
+	requestHash := ""
+	if req.IdempotencyKey != "" {
+		encoded, err := json.Marshal(req)
+		if err != nil {
+			return entity.Transaction{}, fmt.Errorf("encode idempotent transaction: %w", err)
+		}
+		digest := sha256.Sum256(encoded)
+		requestHash = hex.EncodeToString(digest[:])
+	}
 	var err error
 	req.Items, err = mergeTransactionItems(req.Items)
 	if err != nil {
@@ -431,6 +445,32 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 		return entity.Transaction{}, err
 	}
 	defer tx.Rollback(ctx)
+	if req.IdempotencyKey != "" {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, req.IdempotencyKey); err != nil {
+			return entity.Transaction{}, fmt.Errorf("lock idempotent transaction: %w", err)
+		}
+		var existing entity.Transaction
+		var existingHash string
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id,invoice_no,transaction_type,grand_total,paid_amount,
+				amount_received,change_amount,payment_status,status,request_hash
+			FROM %s.transactions WHERE idempotency_key=$1
+		`, r.schema), req.IdempotencyKey).Scan(
+			&existing.ID, &existing.InvoiceNo, &existing.TransactionType, &existing.GrandTotal,
+			&existing.PaidAmount, &existing.AmountReceived, &existing.ChangeAmount,
+			&existing.PaymentStatus, &existing.Status, &existingHash,
+		)
+		if err == nil {
+			if existingHash != requestHash {
+				return entity.Transaction{}, ErrIdempotencyConflict
+			}
+			existing.IdempotencyReplay = true
+			return existing, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return entity.Transaction{}, err
+		}
+	}
 	if req.TransactionType == "SALE" && req.CustomerID == nil {
 		return entity.Transaction{}, errors.New("customer is required for a sale")
 	}
@@ -481,9 +521,13 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 	} else if paid < total {
 		status = "PARTIAL"
 	}
-	invoice := fmt.Sprintf("%s-%s", map[string]string{"SALE": "PJL", "PURCHASE": "PBL"}[req.TransactionType], time.Now().Format("20060102-150405.000000"))
+	var invoiceSequence int64
+	if err := tx.QueryRow(ctx, `SELECT nextval($1::regclass)`, r.schema+`.invoice_number_seq`).Scan(&invoiceSequence); err != nil {
+		return entity.Transaction{}, fmt.Errorf("generate invoice number: %w", err)
+	}
+	invoice := fmt.Sprintf("%s-%s-%06d", map[string]string{"SALE": "PJL", "PURCHASE": "PBL"}[req.TransactionType], time.Now().Format("20060102"), invoiceSequence)
 	var id int64
-	err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.transactions (invoice_no,transaction_type,customer_id,supplier_id,payment_method_id,payment_status,grand_total,paid_amount,amount_received,change_amount,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`, r.schema), invoice, req.TransactionType, req.CustomerID, req.SupplierID, req.PaymentMethodID, status, total, paid, received, changeAmount, req.Notes).Scan(&id)
+	err = tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.transactions (invoice_no,transaction_type,customer_id,supplier_id,payment_method_id,payment_status,grand_total,paid_amount,amount_received,change_amount,notes,idempotency_key,request_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,'')) RETURNING id`, r.schema), invoice, req.TransactionType, req.CustomerID, req.SupplierID, req.PaymentMethodID, status, total, paid, received, changeAmount, req.Notes, req.IdempotencyKey, requestHash).Scan(&id)
 	if err != nil {
 		return entity.Transaction{}, err
 	}

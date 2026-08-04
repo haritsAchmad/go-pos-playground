@@ -40,10 +40,10 @@ export function useKoperasiApi() {
       lastActivity.value = Date.now()
       await refreshIfNeeded()
     }
-    const headers: Record<string, string> = {}
-    if (token.value) headers.Authorization = `Bearer ${token.value}`
+    const headers: Record<string, string> = { ...((options.headers as Record<string, string> | undefined) || {}) }
+	if (token.value) headers.Authorization = `Bearer ${token.value}`
     try {
-      const payload = await $fetch<{ success: boolean; message: string; data: T }>(path, { baseURL, headers, credentials: 'include', ...options })
+      const payload = await $fetch<{ success: boolean; message: string; data: T }>(path, { baseURL, credentials: 'include', ...options, headers })
       return payload.data
     } catch (error: any) {
       // A rejected token is never retried indefinitely; clear it and require a fresh login.
@@ -95,7 +95,7 @@ export function useKoperasiApi() {
     createMaster: (name: string, body: any) => request(`/masters/${name}`, { method: 'POST', body }),
     updateMaster: (table: string, id: number, body: any) => request(`/masters/${table}/${id}`, { method: 'PUT', body }),
     deleteMaster: (table: string, id: number) => request(`/masters/${table}/${id}`, { method: 'DELETE' }),
-    createTransaction: (body: any) => request('/transactions', { method: 'POST', body }),
+    createTransaction: (body: any, idempotencyKey = globalThis.crypto.randomUUID()) => request('/transactions', { method: 'POST', body, headers: { 'Idempotency-Key': idempotencyKey } }),
     updateTransaction: (id: number, body: any) => request(`/transactions/${id}`, { method: 'PUT', body }),
     voidTransaction: (id: number, reason: string) => request(`/transactions/${id}/void`, { method: 'POST', body: { reason } }),
     payDebt: (id: number, body: any) => request(`/debts/${id}/payments`, { method: 'POST', body }),

@@ -296,6 +296,38 @@ func Migrate(ctx context.Context, db *pgxpool.Pool, schema string) error {
 			}
 			return nil
 		},
+	}, {
+		version: 2,
+		name:    "transaction invoice sequence",
+		up: func() error {
+			sequence := fmt.Sprintf("%s.invoice_number_seq", qualifiedSchema)
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`CREATE SEQUENCE IF NOT EXISTS %s`, sequence)); err != nil {
+				return fmt.Errorf("create invoice sequence: %w", err)
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				SELECT setval($1::regclass, GREATEST(COALESCE(MAX(id), 0) + 1, 1), false)
+				FROM %s.transactions
+			`, qualifiedSchema), sequence); err != nil {
+				return fmt.Errorf("initialize invoice sequence: %w", err)
+			}
+			return nil
+		},
+	}, {
+		version: 3,
+		name:    "transaction idempotency",
+		up: func() error {
+			statements := []string{
+				fmt.Sprintf(`ALTER TABLE %s.transactions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(128)`, qualifiedSchema),
+				fmt.Sprintf(`ALTER TABLE %s.transactions ADD COLUMN IF NOT EXISTS request_hash CHAR(64)`, qualifiedSchema),
+				fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS transactions_idempotency_key_unique ON %s.transactions(idempotency_key) WHERE idempotency_key IS NOT NULL`, qualifiedSchema),
+			}
+			for _, statement := range statements {
+				if _, err := tx.Exec(ctx, statement); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
 	}}
 
 	for _, migration := range migrations {

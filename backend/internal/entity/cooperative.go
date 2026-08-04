@@ -37,6 +37,7 @@ type CreateTransactionRequest struct {
 	PaidAmount      int64             `json:"paid_amount" validate:"gte=0"`
 	Notes           string            `json:"notes" validate:"max=500"`
 	Items           []TransactionLine `json:"items" validate:"required,min=1,dive"`
+	IdempotencyKey  string            `json:"-"`
 }
 
 type Transaction struct {
@@ -59,6 +60,7 @@ type Transaction struct {
 	VoidReason        string            `json:"void_reason"`
 	Notes             string            `json:"notes"`
 	Items             []TransactionLine `json:"items,omitempty"`
+	IdempotencyReplay bool              `json:"-"`
 }
 
 type Debt struct {
