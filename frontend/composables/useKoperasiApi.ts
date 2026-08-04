@@ -96,6 +96,7 @@ export function useKoperasiApi() {
     updateMaster: (table: string, id: number, body: any) => request(`/masters/${table}/${id}`, { method: 'PUT', body }),
     deleteMaster: (table: string, id: number) => request(`/masters/${table}/${id}`, { method: 'DELETE' }),
     createTransaction: (body: any, idempotencyKey = globalThis.crypto.randomUUID()) => request('/transactions', { method: 'POST', body, headers: { 'Idempotency-Key': idempotencyKey } }),
+		simulatePayment: (id: number, status: 'PAID'|'FAILED'|'EXPIRED') => request(`/payments/${id}/simulate`, { method: 'POST', body: { status } }),
     updateTransaction: (id: number, body: any) => request(`/transactions/${id}`, { method: 'PUT', body }),
     voidTransaction: (id: number, reason: string) => request(`/transactions/${id}/void`, { method: 'POST', body: { reason } }),
     payDebt: (id: number, body: any) => request(`/debts/${id}/payments`, { method: 'POST', body }),

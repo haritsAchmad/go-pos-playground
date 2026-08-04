@@ -242,6 +242,8 @@ Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri. Sta
 | `POST` | `/debts/{id}/payments` | Catat pembayaran piutang |
 
 Untuk mencegah transaksi ganda akibat retry jaringan, `POST /transactions` menerima header opsional `Idempotency-Key` sepanjang 8-128 karakter. Request ulang dengan key dan payload yang sama mengembalikan transaksi sebelumnya; penggunaan key yang sama untuk payload berbeda ditolak dengan HTTP `409 Conflict`. Frontend kasir mengirim key ini secara otomatis.
+
+Penjualan dengan metode `QRIS Dummy` menggunakan payment lifecycle asynchronous. Checkout membuat payment `PENDING` dan mereservasi stok selama 15 menit tanpa langsung menguranginya. Endpoint simulator `POST /payments/{id}/simulate` menerima status `PAID`, `FAILED`, atau `EXPIRED`: pembayaran lunas memfinalisasi pengurangan stok, sedangkan gagal/kedaluwarsa melepaskan reservasi. Callback status yang sama bersifat idempotent.
 | `GET, POST, PUT, DELETE` | `/masters/{name}` | Kelola master data |
 
 ### Pagination API

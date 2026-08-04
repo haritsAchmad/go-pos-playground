@@ -6,6 +6,7 @@
 
 - PostgreSQL-backed transaction invoice sequence and concurrent checkout integration coverage.
 - Idempotent transaction creation with replay detection, payload conflict protection, and PostgreSQL advisory locking.
+- Dummy asynchronous payment lifecycle with idempotent callbacks and expiring stock reservations.
 - Versioned PostgreSQL migrations with an atomic `schema_migrations` ledger and startup lock.
 
 ## v0.2.0

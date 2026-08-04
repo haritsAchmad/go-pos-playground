@@ -9,6 +9,7 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 - Nomor invoice transaksi berbasis sequence PostgreSQL yang aman untuk checkout paralel.
 - Integration test concurrent checkout untuk memastikan invoice unik dan stok tetap konsisten.
 - Idempotency key checkout untuk mencegah transaksi dan pengurangan stok ganda saat request diulang.
+- QRIS Dummy asynchronous dengan status pembayaran, simulator callback, dan reservasi stok hingga pembayaran selesai.
 - Daftar data terhapus dan aksi pemulihan untuk barang, pelanggan, dan supplier dengan validasi konflik kode/SKU aktif.
 - Bulk soft delete dan bulk restore hingga 100 barang, pelanggan, atau supplier dengan hasil per item dan audit target.
 - Pelunasan massal beberapa piutang dengan histori pembayaran individual serta reset stok massal ke 0 dengan stock movement per barang.

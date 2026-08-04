@@ -35,6 +35,7 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground saat ini. Priorita
 - Benchmark PostgreSQL yang dapat direproduksi untuk checkout penjualan dan histori transaksi berhalaman
 - Nomor invoice berbasis sequence PostgreSQL dan integration test concurrent checkout
 - Idempotency key checkout dengan perlindungan retry paralel dan deteksi payload berbeda
+- Dummy asynchronous payment dengan lifecycle, simulator callback idempotent, dan stock reservation 15 menit
 
 ## 🟨 In Progress
 

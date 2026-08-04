@@ -38,6 +38,7 @@ type CreateTransactionRequest struct {
 	Notes           string            `json:"notes" validate:"max=500"`
 	Items           []TransactionLine `json:"items" validate:"required,min=1,dive"`
 	IdempotencyKey  string            `json:"-"`
+	PaymentProvider string            `json:"payment_provider,omitempty" validate:"omitempty,oneof=DUMMY"`
 }
 
 type Transaction struct {
@@ -61,6 +62,19 @@ type Transaction struct {
 	Notes             string            `json:"notes"`
 	Items             []TransactionLine `json:"items,omitempty"`
 	IdempotencyReplay bool              `json:"-"`
+	Payment           *Payment          `json:"payment,omitempty"`
+}
+
+type Payment struct {
+	ID                int64      `json:"id"`
+	TransactionID     int64      `json:"transaction_id"`
+	Provider          string     `json:"provider"`
+	ExternalReference string     `json:"external_reference"`
+	Status            string     `json:"status"`
+	Amount            int64      `json:"amount"`
+	PaidAt            *time.Time `json:"paid_at"`
+	ExpiresAt         time.Time  `json:"expires_at"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 type Debt struct {

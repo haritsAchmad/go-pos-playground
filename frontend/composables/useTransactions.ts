@@ -13,6 +13,7 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
   const editDraft=useState<any|null>('transaction-edit-draft',()=>null)
   const lineTotal=computed(()=>transactionForm.items.reduce((sum:number,line:any)=>sum+(Number(line.quantity)||0)*(Number(line.unit_price)||0),0))
   const changeAmount=computed(()=>Number(transactionForm.paid_amount||0)-lineTotal.value)
+	const isAsyncPayment=computed(()=>active.value==='sale'&&data.payment_methods.find((v:any)=>Number(v.id)===Number(transactionForm.payment_method_id))?.name==='QRIS Dummy')
   const transactionItems=computed(()=>active.value==='purchase'?data.items.filter((v:any)=>Number(v.supplier_id)===Number(transactionForm.supplier_id)):data.items)
   const filteredTransactions=computed(()=>data.transactions.filter((v:any)=>{const query=filters.historySearch.toLowerCase();const matchesSearch=!query||[v.invoice_no,v.customer_name,v.supplier_name,v.notes].some(x=>String(x||'').toLowerCase().includes(query));const matchesType=!filters.historyType||v.transaction_type===filters.historyType;const matchesStatus=!filters.historyStatus||(filters.historyStatus==='ACTIVE'?v.status==='ACTIVE':filters.historyStatus==='VOID'?v.status==='VOID':v.payment_status===filters.historyStatus);return matchesSearch&&matchesType&&matchesStatus}))
 
@@ -21,16 +22,36 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
   function addLine(){transactionForm.items.push(emptyLine())}
   function resetTransaction(context:string=active.value){editing.transaction=null;transactionContext.value=context==='purchase'?'purchase':'sale';Object.assign(transactionForm,{customer_id:context==='sale'?data.customers.find((c:any)=>c.code==='UMUM')?.id||null:null,supplier_id:null,payment_method_id:null,paid_amount:0,notes:'',items:[emptyLine()]})}
   async function editTransaction(v:any){if(v.status!=='ACTIVE')return;const context=v.transaction_type==='SALE'?'sale':'purchase';editDraft.value={id:v.id,context,form:{customer_id:v.customer_id,supplier_id:v.supplier_id,payment_method_id:v.payment_method_id,paid_amount:v.amount_received,notes:v.notes||'',items:v.items.map((line:any)=>({item_id:line.item_id,unit_id:line.unit_id,quantity:line.quantity,unit_price:line.unit_price}))}};await navigateTo(context==='sale'?'/kasir':'/pembelian')}
-  async function saveTransaction(type:'SALE'|'PURCHASE'){const payload={...transactionForm,transaction_type:type,customer_id:type==='SALE'?Number(transactionForm.customer_id):null,supplier_id:type==='PURCHASE'?Number(transactionForm.supplier_id):null,payment_method_id:transactionForm.payment_method_id?Number(transactionForm.payment_method_id):null,paid_amount:Number(transactionForm.paid_amount),items:transactionForm.items.map((v:any)=>({...v,item_id:Number(v.item_id),unit_id:Number(v.unit_id),quantity:Number(v.quantity),unit_price:Number(v.unit_price)}))};const id=editing.transaction;if(await submit(()=>id?api.updateTransaction(id,payload):api.createTransaction(payload),`${type==='SALE'?'Penjualan':'Pembelian'} berhasil ${id?'diubah':'dicatat'}`,[reloadDashboard,reloadItems,loadTransactions,reloadDebts],`${id?'Simpan perubahan':'Simpan'} ${type==='SALE'?'penjualan':'pembelian'} sebesar ${money(lineTotal.value)}?`))resetTransaction()}
+	async function saveTransaction(type:'SALE'|'PURCHASE'){
+		const asyncPayment=type==='SALE'&&isAsyncPayment.value&&!editing.transaction
+		const payload={...transactionForm,transaction_type:type,customer_id:type==='SALE'?Number(transactionForm.customer_id):null,supplier_id:type==='PURCHASE'?Number(transactionForm.supplier_id):null,payment_method_id:transactionForm.payment_method_id?Number(transactionForm.payment_method_id):null,paid_amount:asyncPayment?0:Number(transactionForm.paid_amount),payment_provider:asyncPayment?'DUMMY':undefined,items:transactionForm.items.map((v:any)=>({...v,item_id:Number(v.item_id),unit_id:Number(v.unit_id),quantity:Number(v.quantity),unit_price:Number(v.unit_price)}))}
+		const id=editing.transaction
+		let created:any=null
+		const saved=await submit(async()=>{created=id?await api.updateTransaction(id,payload):await api.createTransaction(payload);return created},`${type==='SALE'?'Penjualan':'Pembelian'} berhasil ${id?'diubah':asyncPayment?'direservasi sambil menunggu pembayaran':'dicatat'}`,[reloadDashboard,reloadItems,loadTransactions,reloadDebts],`${id?'Simpan perubahan':'Simpan'} ${type==='SALE'?'penjualan':'pembelian'} sebesar ${money(lineTotal.value)}?`)
+		if(!saved)return
+		if(created?.payment){
+			const result=await Swal.fire({icon:'info',title:'Simulasi QRIS Dummy',html:`Referensi <b>${created.payment.external_reference}</b><br>Stok direservasi selama 15 menit.`,showDenyButton:true,showCancelButton:true,confirmButtonText:'Simulasikan Lunas',denyButtonText:'Simulasikan Gagal',cancelButtonText:'Biarkan Pending'})
+			if(result.isConfirmed)await api.simulatePayment(created.payment.id,'PAID')
+			else if(result.isDenied)await api.simulatePayment(created.payment.id,'FAILED')
+			await Promise.all([reloadDashboard(),reloadItems(),loadTransactions(),reloadDebts()])
+		}
+		resetTransaction()
+	}
   function availableUnits(line:any){const item=data.items.find((v:any)=>v.id===Number(line.item_id));if(!item)return[];const result=[{id:item.unit_id,name:item.unit_name,factor:item.units_per_package}];if(item.allow_retail&&Number(item.base_unit_id)!==Number(item.unit_id))result.push({id:item.base_unit_id,name:item.base_unit_name,factor:1});return result}
   function chooseUnit(line:any){const item=data.items.find((v:any)=>v.id===Number(line.item_id));if(!item)return;const retail=Number(line.unit_id)===Number(item.base_unit_id)&&Number(item.base_unit_id)!==Number(item.unit_id);line.unit_price=active.value==='purchase'?(retail?item.retail_cost:item.cost):(retail?item.retail_price:item.price)}
   function chooseItem(line:any){const item=data.items.find((v:any)=>v.id===Number(line.item_id));if(item){line.unit_id=item.unit_id;chooseUnit(line)}}
   function stockLabel(item:any){const factor=Math.max(1,Number(item.units_per_package)||1);if(factor===1)return`${item.stock} ${item.unit_name||''}`.trim();const packages=Math.floor(Number(item.stock)/factor),remainder=Number(item.stock)%factor;return`${packages} ${item.unit_name||'kemasan'}${remainder?` + ${remainder} ${item.base_unit_name||'satuan'}`:''}`}
   function printReceipt(transaction:any){selectedReceipt.value=transaction;printDocument('receipt')}
+	async function simulatePendingPayment(transaction:any){
+		const result=await Swal.fire({icon:'info',title:`Pembayaran ${transaction.invoice_no}`,html:`Referensi <b>${transaction.payment.external_reference}</b>`,showDenyButton:true,showCancelButton:true,confirmButtonText:'Simulasikan Lunas',denyButtonText:'Simulasikan Gagal',cancelButtonText:'Kembali'})
+		if(!result.isConfirmed&&!result.isDenied)return
+		await api.simulatePayment(transaction.payment.id,result.isConfirmed?'PAID':'FAILED')
+		await Promise.all([reloadDashboard(),reloadItems(),loadTransactions(),reloadDebts()])
+	}
 
   if(editDraft.value&&editDraft.value.context===active.value){editing.transaction=editDraft.value.id;transactionContext.value=editDraft.value.context;Object.assign(transactionForm,editDraft.value.form);editDraft.value=null}
 
   watch(()=>transactionForm.supplier_id,()=>{if(active.value==='purchase'){transactionForm.items=transactionForm.items.map((line:any)=>transactionItems.value.some((v:any)=>v.id===Number(line.item_id))?line:emptyLine())}})
 
-  return {transactionForm,transactionContext,expandedTransaction,selectedReceipt,lineTotal,changeAmount,transactionItems,filteredTransactions,loadTransactions,voidTransaction,addLine,resetTransaction,editTransaction,saveTransaction,availableUnits,chooseUnit,chooseItem,stockLabel,printReceipt}
+	return {transactionForm,transactionContext,expandedTransaction,selectedReceipt,lineTotal,changeAmount,isAsyncPayment,transactionItems,filteredTransactions,loadTransactions,voidTransaction,simulatePendingPayment,addLine,resetTransaction,editTransaction,saveTransaction,availableUnits,chooseUnit,chooseItem,stockLabel,printReceipt}
 }

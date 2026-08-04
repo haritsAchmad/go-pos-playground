@@ -352,6 +352,32 @@ func (h *CooperativeHandler) Transactions(w http.ResponseWriter, r *http.Request
 	response.Error(w, 405, "method not allowed")
 }
 
+func (h *CooperativeHandler) SimulatePayment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/simulate") {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	part := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/payments/"), "/simulate")
+	id, err := strconv.ParseInt(strings.Trim(part, "/"), 10, 64)
+	if err != nil || id < 1 {
+		response.Error(w, http.StatusBadRequest, "invalid payment ID")
+		return
+	}
+	var req struct {
+		Status string `json:"status"`
+	}
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		response.Error(w, http.StatusBadRequest, "invalid payment data")
+		return
+	}
+	payment, err := h.repo.SetDummyPaymentStatus(r.Context(), id, strings.ToUpper(req.Status))
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(w, http.StatusOK, "dummy payment updated", payment)
+}
+
 func (h *CooperativeHandler) VoidTransaction(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPut && !strings.HasSuffix(r.URL.Path, "/void") {
 		part := strings.Trim(strings.TrimPrefix(r.URL.Path, "/transactions/"), "/")

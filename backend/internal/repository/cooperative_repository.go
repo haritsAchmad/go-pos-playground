@@ -445,6 +445,10 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 		return entity.Transaction{}, err
 	}
 	defer tx.Rollback(ctx)
+	asyncPayment := req.PaymentProvider != ""
+	if asyncPayment && (req.TransactionType != "SALE" || req.PaymentProvider != "DUMMY" || req.PaidAmount != 0) {
+		return entity.Transaction{}, errors.New("asynchronous payment is only available for unpaid sales using provider DUMMY")
+	}
 	if req.IdempotencyKey != "" {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, req.IdempotencyKey); err != nil {
 			return entity.Transaction{}, fmt.Errorf("lock idempotent transaction: %w", err)
@@ -463,6 +467,13 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 		if err == nil {
 			if existingHash != requestHash {
 				return entity.Transaction{}, ErrIdempotencyConflict
+			}
+			var replayPayment entity.Payment
+			err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,transaction_id,provider,external_reference,status,amount,paid_at,expires_at,created_at FROM %s.payments WHERE transaction_id=$1`, r.schema), existing.ID).Scan(&replayPayment.ID, &replayPayment.TransactionID, &replayPayment.Provider, &replayPayment.ExternalReference, &replayPayment.Status, &replayPayment.Amount, &replayPayment.PaidAt, &replayPayment.ExpiresAt, &replayPayment.CreatedAt)
+			if err == nil {
+				existing.Payment = &replayPayment
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return entity.Transaction{}, err
 			}
 			existing.IdempotencyReplay = true
 			return existing, nil
@@ -509,7 +520,10 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.payment_methods WHERE id=$1`, r.schema), req.PaymentMethodID).Scan(&paymentMethod); err != nil {
 		return entity.Transaction{}, errors.New("metode pembayaran tidak valid")
 	}
-	if received < total && !strings.EqualFold(paymentMethod, "Piutang") {
+	if asyncPayment && !strings.EqualFold(paymentMethod, "QRIS Dummy") {
+		return entity.Transaction{}, errors.New("provider DUMMY requires payment method QRIS Dummy")
+	}
+	if received < total && !strings.EqualFold(paymentMethod, "Piutang") && !asyncPayment {
 		return entity.Transaction{}, fmt.Errorf("pembayaran kurang Rp%d; pilih metode Piutang atau masukkan pembayaran penuh", total-received)
 	}
 	if req.TransactionType == "PURCHASE" && received < total {
@@ -531,32 +545,55 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 	if err != nil {
 		return entity.Transaction{}, err
 	}
+	var payment *entity.Payment
+	if asyncPayment {
+		expiresAt := time.Now().Add(15 * time.Minute)
+		payment = &entity.Payment{TransactionID: id, Provider: req.PaymentProvider, ExternalReference: "DUMMY-" + invoice, Status: "PENDING", Amount: total, ExpiresAt: expiresAt}
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.payments(transaction_id,provider,external_reference,status,amount,expires_at)
+			VALUES($1,$2,$3,'PENDING',$4,$5) RETURNING id,created_at
+		`, r.schema), id, payment.Provider, payment.ExternalReference, total, expiresAt).Scan(&payment.ID, &payment.CreatedAt); err != nil {
+			return entity.Transaction{}, err
+		}
+	}
 	for _, line := range req.Items {
 		var stock int
 		var itemName string
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT stock,name FROM %s.items WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, r.schema), line.ItemID).Scan(&stock, &itemName); err != nil {
 			return entity.Transaction{}, err
 		}
+		var reserved int
+		if req.TransactionType == "SALE" {
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(quantity),0) FROM %s.stock_reservations WHERE item_id=$1 AND status='ACTIVE' AND expires_at>NOW()`, r.schema), line.ItemID).Scan(&reserved); err != nil {
+				return entity.Transaction{}, err
+			}
+			if stock-reserved < line.BaseQuantity {
+				return entity.Transaction{}, fmt.Errorf("stok %s tidak cukup: tersedia %d satuan dasar, diminta %d", itemName, stock-reserved, line.BaseQuantity)
+			}
+		}
 		change := line.BaseQuantity
 		if req.TransactionType == "SALE" {
 			change = -change
-			if stock+change < 0 {
-				return entity.Transaction{}, fmt.Errorf("stok %s tidak cukup: tersedia %d satuan dasar, diminta %d", itemName, stock, line.BaseQuantity)
-			}
 		}
 		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.transaction_items (transaction_id,item_id,unit_id,unit_name,quantity,conversion_factor,base_quantity,unit_price,subtotal) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, r.schema), id, line.ItemID, line.UnitID, line.UnitName, line.Quantity, line.ConversionFactor, line.BaseQuantity, line.UnitPrice, line.Subtotal)
 		if err != nil {
 			return entity.Transaction{}, err
 		}
-		_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.items SET stock=stock+$1, updated_at=NOW() WHERE id=$2`, r.schema), change, line.ItemID)
-		if err != nil {
-			return entity.Transaction{}, err
-		}
-		if err := r.recordStockMovement(ctx, tx, line.ItemID, req.TransactionType, stock, change, invoice); err != nil {
-			return entity.Transaction{}, err
+		if asyncPayment {
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.stock_reservations(payment_id,item_id,quantity,status,expires_at) VALUES($1,$2,$3,'ACTIVE',$4)`, r.schema), payment.ID, line.ItemID, line.BaseQuantity, payment.ExpiresAt); err != nil {
+				return entity.Transaction{}, err
+			}
+		} else {
+			_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.items SET stock=stock+$1, updated_at=NOW() WHERE id=$2`, r.schema), change, line.ItemID)
+			if err != nil {
+				return entity.Transaction{}, err
+			}
+			if err := r.recordStockMovement(ctx, tx, line.ItemID, req.TransactionType, stock, change, invoice); err != nil {
+				return entity.Transaction{}, err
+			}
 		}
 	}
-	if req.TransactionType == "SALE" && paid < total {
+	if req.TransactionType == "SALE" && paid < total && !asyncPayment {
 		_, err = tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.debts (transaction_id,customer_id,original_amount,remaining_amount) VALUES ($1,$2,$3,$4)`, r.schema), id, req.CustomerID, total-paid, total-paid)
 		if err != nil {
 			return entity.Transaction{}, err
@@ -565,7 +602,7 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 	if err := tx.Commit(ctx); err != nil {
 		return entity.Transaction{}, err
 	}
-	return entity.Transaction{ID: id, InvoiceNo: invoice, TransactionType: req.TransactionType, GrandTotal: total, PaidAmount: paid, AmountReceived: received, ChangeAmount: changeAmount, PaymentStatus: status, Status: "ACTIVE"}, nil
+	return entity.Transaction{ID: id, InvoiceNo: invoice, TransactionType: req.TransactionType, GrandTotal: total, PaidAmount: paid, AmountReceived: received, ChangeAmount: changeAmount, PaymentStatus: status, Status: "ACTIVE", Payment: payment}, nil
 }
 
 func (r *CooperativeRepository) Transactions(ctx context.Context, kind string) ([]entity.Transaction, error) {
@@ -712,6 +749,23 @@ func (r *CooperativeRepository) transactions(ctx context.Context, where, order, 
 	if err := itemRows.Err(); err != nil {
 		return nil, err
 	}
+	paymentRows, err := r.db.Query(ctx, fmt.Sprintf(`SELECT id,transaction_id,provider,external_reference,status,amount,paid_at,expires_at,created_at FROM %s.payments WHERE transaction_id=ANY($1)`, r.schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer paymentRows.Close()
+	for paymentRows.Next() {
+		var payment entity.Payment
+		if err := paymentRows.Scan(&payment.ID, &payment.TransactionID, &payment.Provider, &payment.ExternalReference, &payment.Status, &payment.Amount, &payment.PaidAt, &payment.ExpiresAt, &payment.CreatedAt); err != nil {
+			return nil, err
+		}
+		if index, ok := indexByID[payment.TransactionID]; ok {
+			result[index].Payment = &payment
+		}
+	}
+	if err := paymentRows.Err(); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -735,6 +789,13 @@ func (r *CooperativeRepository) UpdateTransaction(ctx context.Context, id int64,
 	}
 	if status != "ACTIVE" {
 		return entity.Transaction{}, errors.New("transaksi yang sudah dibatalkan tidak dapat diubah")
+	}
+	var providerPayment bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.payments WHERE transaction_id=$1)`, r.schema), id).Scan(&providerPayment); err != nil {
+		return entity.Transaction{}, err
+	}
+	if providerPayment {
+		return entity.Transaction{}, errors.New("transaksi payment provider tidak dapat diubah")
 	}
 	if req.TransactionType != kind {
 		return entity.Transaction{}, errors.New("jenis transaksi tidak dapat diubah")
@@ -854,6 +915,13 @@ func (r *CooperativeRepository) UpdateTransaction(ctx context.Context, id int64,
 		change := line.BaseQuantity
 		if kind == "SALE" {
 			change = -line.BaseQuantity
+			var reserved int
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(SUM(quantity),0) FROM %s.stock_reservations WHERE item_id=$1 AND status='ACTIVE' AND expires_at>NOW()`, r.schema), line.ItemID).Scan(&reserved); err != nil {
+				return entity.Transaction{}, err
+			}
+			if stock-reserved+change < 0 {
+				return entity.Transaction{}, fmt.Errorf("stok %s tidak cukup setelah reservasi aktif", itemName)
+			}
 		}
 		if stock+change < 0 {
 			return entity.Transaction{}, fmt.Errorf("stok %s tidak cukup: tersedia %d satuan dasar, diminta %d", itemName, stock, line.BaseQuantity)
@@ -891,6 +959,13 @@ func (r *CooperativeRepository) VoidTransaction(ctx context.Context, id int64, r
 	}
 	if status == "VOID" {
 		return errors.New("transaksi sudah dibatalkan")
+	}
+	var providerPayment bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.payments WHERE transaction_id=$1)`, r.schema), id).Scan(&providerPayment); err != nil {
+		return err
+	}
+	if providerPayment {
+		return errors.New("transaksi payment provider tidak dapat dibatalkan langsung; gunakan lifecycle payment")
 	}
 	var payments int
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.debt_payments dp JOIN %s.debts d ON d.id=dp.debt_id WHERE d.transaction_id=$1`, r.schema, r.schema), id).Scan(&payments); err != nil {

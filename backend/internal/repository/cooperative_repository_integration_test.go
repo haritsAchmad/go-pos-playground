@@ -129,6 +129,7 @@ type transactionFixture struct {
 	supplierID int64
 	cashID     int64
 	debtID     int64
+	qrisID     int64
 	itemID     int64
 	pcsUnitID  int64
 	boxUnitID  int64
@@ -183,6 +184,7 @@ func newTransactionFixture(t testing.TB) *transactionFixture {
 	mustScan(fmt.Sprintf(`SELECT id FROM %s.customers WHERE code='UMUM'`, q), nil, &f.customerID)
 	mustScan(fmt.Sprintf(`SELECT id FROM %s.payment_methods WHERE name='Tunai'`, q), nil, &f.cashID)
 	mustScan(fmt.Sprintf(`SELECT id FROM %s.payment_methods WHERE name='Piutang'`, q), nil, &f.debtID)
+	mustScan(fmt.Sprintf(`SELECT id FROM %s.payment_methods WHERE name='QRIS Dummy'`, q), nil, &f.qrisID)
 	mustScan(fmt.Sprintf(`SELECT id FROM %s.units WHERE name='Pcs'`, q), nil, &f.pcsUnitID)
 	mustScan(fmt.Sprintf(`SELECT id FROM %s.units WHERE name='Box'`, q), nil, &f.boxUnitID)
 	mustScan(fmt.Sprintf(`INSERT INTO %s.suppliers(code,name,phone,address) VALUES('SUP-TEST','Supplier Test','','') RETURNING id`, q), nil, &f.supplierID)
@@ -652,6 +654,105 @@ func TestIdempotentCheckoutIntegration(t *testing.T) {
 	})
 }
 
+func TestDummyAsyncPaymentIntegration(t *testing.T) {
+	t.Run("pending reservation is fulfilled exactly once", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		request := f.request("SALE", 2, 0, false)
+		request.PaymentMethodID = &f.qrisID
+		request.PaymentProvider = "DUMMY"
+		request.IdempotencyKey = "dummy-payment-001"
+		transaction, err := f.repository.CreateTransaction(f.ctx, request)
+		if err != nil {
+			t.Fatalf("create async checkout: %v", err)
+		}
+		if transaction.Payment == nil || transaction.Payment.Status != "PENDING" {
+			t.Fatalf("payment = %+v, want PENDING", transaction.Payment)
+		}
+		history, err := f.repository.Transactions(f.ctx, "SALE")
+		if err != nil || len(history) != 1 || history[0].Payment == nil || history[0].Payment.Status != "PENDING" {
+			t.Fatalf("payment was not hydrated in transaction history: history=%+v err=%v", history, err)
+		}
+		if stock := f.stock(t); stock != 10 {
+			t.Fatalf("stock while pending = %d, want 10", stock)
+		}
+		if _, err := f.repository.UpdateTransaction(f.ctx, transaction.ID, f.request("SALE", 1, 1000, false)); err == nil {
+			t.Fatal("expected provider transaction edit to be rejected")
+		}
+		if err := f.repository.VoidTransaction(f.ctx, transaction.ID, "direct void"); err == nil {
+			t.Fatal("expected direct provider transaction void to be rejected")
+		}
+		blocked := f.request("SALE", 9, 9000, false)
+		if _, err := f.repository.CreateTransaction(f.ctx, blocked); err == nil {
+			t.Fatal("expected reserved stock to block another sale")
+		}
+		payment, err := f.repository.SetDummyPaymentStatus(f.ctx, transaction.Payment.ID, "PAID")
+		if err != nil || payment.Status != "PAID" {
+			t.Fatalf("pay dummy payment: payment=%+v err=%v", payment, err)
+		}
+		if _, err := f.repository.SetDummyPaymentStatus(f.ctx, transaction.Payment.ID, "PAID"); err != nil {
+			t.Fatalf("replay paid callback: %v", err)
+		}
+		if stock := f.stock(t); stock != 8 {
+			t.Fatalf("stock after paid callback replay = %d, want 8", stock)
+		}
+	})
+
+	t.Run("failed payment releases reservation", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		request := f.request("SALE", 10, 0, false)
+		request.PaymentMethodID = &f.qrisID
+		request.PaymentProvider = "DUMMY"
+		transaction, err := f.repository.CreateTransaction(f.ctx, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.repository.SetDummyPaymentStatus(f.ctx, transaction.Payment.ID, "FAILED"); err != nil {
+			t.Fatalf("fail dummy payment: %v", err)
+		}
+		if _, err := f.repository.CreateTransaction(f.ctx, f.request("SALE", 10, 10000, false)); err != nil {
+			t.Fatalf("sale after reservation release: %v", err)
+		}
+		if stock := f.stock(t); stock != 0 {
+			t.Fatalf("stock after released reservation sale = %d, want 0", stock)
+		}
+	})
+
+	t.Run("concurrent paid callbacks only deduct once", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		request := f.request("SALE", 3, 0, false)
+		request.PaymentMethodID = &f.qrisID
+		request.PaymentProvider = "DUMMY"
+		transaction, err := f.repository.CreateTransaction(f.ctx, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		const callbacks = 10
+		start := make(chan struct{})
+		errors := make(chan error, callbacks)
+		var workers sync.WaitGroup
+		for i := 0; i < callbacks; i++ {
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				<-start
+				_, err := f.repository.SetDummyPaymentStatus(f.ctx, transaction.Payment.ID, "PAID")
+				errors <- err
+			}()
+		}
+		close(start)
+		workers.Wait()
+		close(errors)
+		for err := range errors {
+			if err != nil {
+				t.Errorf("paid callback: %v", err)
+			}
+		}
+		if stock := f.stock(t); stock != 7 {
+			t.Fatalf("stock after concurrent callbacks = %d, want 7", stock)
+		}
+	})
+}
+
 func TestVersionedMigrationIntegration(t *testing.T) {
 	f := newTransactionFixture(t)
 	if err := database.Migrate(f.ctx, f.db, f.schema); err != nil {
@@ -666,8 +767,8 @@ func TestVersionedMigrationIntegration(t *testing.T) {
 	if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT name FROM %s.schema_migrations ORDER BY version DESC LIMIT 1`, q)).Scan(&name); err != nil {
 		t.Fatalf("read latest migration: %v", err)
 	}
-	if count != 3 || name != "transaction idempotency" {
-		t.Fatalf("migration ledger = %d/%q, want 3/transaction idempotency", count, name)
+	if count != 4 || name != "asynchronous payments and stock reservations" {
+		t.Fatalf("migration ledger = %d/%q, want 4/asynchronous payments and stock reservations", count, name)
 	}
 }
 
