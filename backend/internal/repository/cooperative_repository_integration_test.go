@@ -790,6 +790,122 @@ func TestDummyAsyncPaymentIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("parallel status polling expires payment exactly once", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		request := f.request("SALE", 3, 0, false)
+		request.PaymentMethodID = &f.qrisID
+		request.PaymentProvider = "DUMMY"
+		transaction, err := f.repository.CreateTransaction(f.ctx, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := pgx.Identifier{f.schema}.Sanitize()
+		if _, err := f.db.Exec(f.ctx, fmt.Sprintf(`UPDATE %s.payments SET expires_at=NOW()-INTERVAL '1 second' WHERE id=$1`, q), transaction.Payment.ID); err != nil {
+			t.Fatalf("expire payment fixture: %v", err)
+		}
+
+		const pollers = 10
+		start := make(chan struct{})
+		results := make(chan entity.Payment, pollers)
+		errors := make(chan error, pollers)
+		var workers sync.WaitGroup
+		for i := 0; i < pollers; i++ {
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				<-start
+				payment, err := f.repository.DummyPayment(f.ctx, transaction.Payment.ID)
+				results <- payment
+				errors <- err
+			}()
+		}
+		close(start)
+		workers.Wait()
+		close(results)
+		close(errors)
+		for err := range errors {
+			if err != nil {
+				t.Errorf("parallel status poll: %v", err)
+			}
+		}
+		for payment := range results {
+			if payment.Status != "EXPIRED" {
+				t.Errorf("parallel status = %s, want EXPIRED", payment.Status)
+			}
+		}
+		var transactionStatus, reservationStatus string
+		if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT t.status,r.status FROM %s.transactions t JOIN %s.payments p ON p.transaction_id=t.id JOIN %s.stock_reservations r ON r.payment_id=p.id WHERE p.id=$1`, q, q, q), transaction.Payment.ID).Scan(&transactionStatus, &reservationStatus); err != nil {
+			t.Fatal(err)
+		}
+		if transactionStatus != "VOID" || reservationStatus != "EXPIRED" || f.stock(t) != 10 {
+			t.Fatalf("parallel expiry left transaction=%s reservation=%s stock=%d", transactionStatus, reservationStatus, f.stock(t))
+		}
+	})
+
+	t.Run("paid callback racing cancellation has one consistent winner", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		request := f.request("SALE", 3, 0, false)
+		request.PaymentMethodID = &f.qrisID
+		request.PaymentProvider = "DUMMY"
+		transaction, err := f.repository.CreateTransaction(f.ctx, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		start := make(chan struct{})
+		statuses := []string{"PAID", "FAILED"}
+		results := make(chan entity.Payment, len(statuses))
+		errors := make(chan error, len(statuses))
+		var workers sync.WaitGroup
+		for _, desired := range statuses {
+			workers.Add(1)
+			go func(status string) {
+				defer workers.Done()
+				<-start
+				payment, err := f.repository.SetDummyPaymentStatus(f.ctx, transaction.Payment.ID, status)
+				results <- payment
+				errors <- err
+			}(desired)
+		}
+		close(start)
+		workers.Wait()
+		close(results)
+		close(errors)
+		successes := 0
+		for err := range errors {
+			if err == nil {
+				successes++
+			}
+		}
+		if successes != 1 {
+			t.Fatalf("successful terminal transitions = %d, want 1", successes)
+		}
+		for range results {
+		}
+
+		payment, err := f.repository.DummyPayment(f.ctx, transaction.Payment.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := pgx.Identifier{f.schema}.Sanitize()
+		var transactionStatus, paymentStatus, reservationStatus string
+		if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT t.status,t.payment_status,r.status FROM %s.transactions t JOIN %s.payments p ON p.transaction_id=t.id JOIN %s.stock_reservations r ON r.payment_id=p.id WHERE p.id=$1`, q, q, q), transaction.Payment.ID).Scan(&transactionStatus, &paymentStatus, &reservationStatus); err != nil {
+			t.Fatal(err)
+		}
+		switch payment.Status {
+		case "PAID":
+			if transactionStatus != "ACTIVE" || paymentStatus != "PAID" || reservationStatus != "FULFILLED" || f.stock(t) != 7 {
+				t.Fatalf("paid winner left transaction=%s/%s reservation=%s stock=%d", transactionStatus, paymentStatus, reservationStatus, f.stock(t))
+			}
+		case "FAILED":
+			if transactionStatus != "VOID" || reservationStatus != "RELEASED" || f.stock(t) != 10 {
+				t.Fatalf("cancel winner left transaction=%s reservation=%s stock=%d", transactionStatus, reservationStatus, f.stock(t))
+			}
+		default:
+			t.Fatalf("unexpected terminal payment status %s", payment.Status)
+		}
+	})
+
 	t.Run("concurrent paid callbacks only deduct once", func(t *testing.T) {
 		f := newTransactionFixture(t)
 		request := f.request("SALE", 3, 0, false)
