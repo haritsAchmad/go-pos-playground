@@ -364,6 +364,27 @@ func Migrate(ctx context.Context, db *pgxpool.Pool, schema string) error {
 			}
 			return nil
 		},
+	}, {
+		version: 5,
+		name:    "audit log identity snapshot hardening",
+		up: func() error {
+			statements := []string{
+				fmt.Sprintf(`ALTER TABLE %s.audit_logs ADD COLUMN IF NOT EXISTS user_name VARCHAR(100) NOT NULL DEFAULT ''`, qualifiedSchema),
+				fmt.Sprintf(`ALTER TABLE %s.audit_logs ADD COLUMN IF NOT EXISTS user_email VARCHAR(255) NOT NULL DEFAULT ''`, qualifiedSchema),
+				fmt.Sprintf(`UPDATE %s.audit_logs a
+					SET user_name=CASE WHEN a.user_name='' THEN u.name ELSE a.user_name END,
+						user_email=CASE WHEN a.user_email='' THEN u.email ELSE a.user_email END
+					FROM %s.users u
+					WHERE u.id=a.user_id AND (a.user_name='' OR a.user_email='')`, qualifiedSchema, qualifiedSchema),
+				fmt.Sprintf(`ALTER TABLE %s.audit_logs DROP CONSTRAINT IF EXISTS audit_logs_user_id_fkey`, qualifiedSchema),
+			}
+			for _, statement := range statements {
+				if _, err := tx.Exec(ctx, statement); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
 	}}
 
 	for _, migration := range migrations {

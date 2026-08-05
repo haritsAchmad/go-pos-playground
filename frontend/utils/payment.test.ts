@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { formatPaymentCountdown, isTerminalPaymentStatus, paymentSecondsRemaining } from './payment'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createPaymentPoller, formatPaymentCountdown, isTerminalPaymentStatus, paymentSecondsRemaining } from './payment'
+
+afterEach(() => vi.useRealTimers())
 
 describe('payment lifecycle utilities', () => {
   it('rounds a partial remaining second up and stops at zero', () => {
@@ -18,5 +20,38 @@ describe('payment lifecycle utilities', () => {
     expect(isTerminalPaymentStatus('PAID')).toBe(true)
     expect(isTerminalPaymentStatus('expired')).toBe(true)
     expect(isTerminalPaymentStatus('PENDING')).toBe(false)
+  })
+
+  it('polls immediately, repeats, and stops cleanly', async () => {
+    vi.useFakeTimers()
+    const poll = vi.fn(async () => {})
+    const poller = createPaymentPoller({ poll })
+
+    poller.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(poll).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(poll).toHaveBeenCalledTimes(3)
+
+    poller.stop()
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(poll).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not overlap slow polling requests', async () => {
+    vi.useFakeTimers()
+    let finish: (() => void) | undefined
+    const poll = vi.fn(() => new Promise<void>((resolve) => { finish = resolve }))
+    const poller = createPaymentPoller({ poll })
+
+    poller.start()
+    await vi.advanceTimersByTimeAsync(9000)
+    expect(poll).toHaveBeenCalledTimes(1)
+
+    finish?.()
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(poll).toHaveBeenCalledTimes(2)
+    poller.stop()
   })
 })

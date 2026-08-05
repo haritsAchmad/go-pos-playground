@@ -1,6 +1,6 @@
 import Swal from 'sweetalert2'
 import type { Ref } from 'vue'
-import { formatPaymentCountdown, isTerminalPaymentStatus, paymentSecondsRemaining } from '~/utils/payment'
+import { createPaymentPoller, formatPaymentCountdown, isTerminalPaymentStatus, paymentSecondsRemaining } from '~/utils/payment'
 
 type Submit=(action:()=>Promise<any>,message:string,reload:Array<()=>Promise<void>>,confirmation?:string|false)=>Promise<boolean>
 
@@ -14,7 +14,6 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
 	const paymentNow=ref(Date.now())
 	let paymentTimer:ReturnType<typeof setInterval>|null=null
 	let paymentPollInFlight=false
-	let paymentTick=0
   const editDraft=useState<any|null>('transaction-edit-draft',()=>null)
   const lineTotal=computed(()=>transactionForm.items.reduce((sum:number,line:any)=>sum+(Number(line.quantity)||0)*(Number(line.unit_price)||0),0))
   const changeAmount=computed(()=>Number(transactionForm.paid_amount||0)-lineTotal.value)
@@ -40,6 +39,7 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
 		}finally{paymentPollInFlight=false}
 	}
 	async function loadTransactions(){data.transactions=await api.transactions();if(active.value==='history')void pollPendingPayments()}
+	const paymentPoller=createPaymentPoller({poll:pollPendingPayments})
 	function paymentCountdown(transaction:any){return formatPaymentCountdown(paymentSecondsRemaining(transaction.payment?.expires_at,paymentNow.value))}
 	function paymentStatusLabel(transaction:any){
 		const status=transaction.payment?.status
@@ -81,11 +81,10 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
 	if(import.meta.client){
 		paymentTimer=setInterval(()=>{
 			paymentNow.value=Date.now()
-			paymentTick+=1
-			if(paymentTick%3===0)void pollPendingPayments()
 		},1000)
+		paymentPoller.start()
 	}
-	onUnmounted(()=>{if(paymentTimer)clearInterval(paymentTimer)})
+	onUnmounted(()=>{if(paymentTimer)clearInterval(paymentTimer);paymentPoller.stop()})
 
   if(editDraft.value&&editDraft.value.context===active.value){editing.transaction=editDraft.value.id;transactionContext.value=editDraft.value.context;Object.assign(transactionForm,editDraft.value.form);editDraft.value=null}
 

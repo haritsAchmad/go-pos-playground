@@ -238,12 +238,15 @@ Admin tidak dapat mengubah role, menonaktifkan, atau menghapus akun sendiri. Sta
 | `GET, POST` | `/transactions` | Histori dan pembuatan transaksi |
 | `PUT` | `/transactions/{id}` | Ubah transaksi |
 | `POST` | `/transactions/{id}/void` | Batalkan transaksi |
+| `GET` | `/payments/{id}` | Baca status simulator payment dan persist expiry jika waktunya habis |
+| `POST` | `/payments/{id}/simulate` | Simulasikan payment menjadi `PAID`, `FAILED`, atau `EXPIRED` |
+| `POST` | `/payments/{id}/cancel` | Batalkan payment pending dan lepaskan reservasi stok |
 | `GET` | `/debts` | Daftar piutang |
 | `POST` | `/debts/{id}/payments` | Catat pembayaran piutang |
 
 Untuk mencegah transaksi ganda akibat retry jaringan, `POST /transactions` menerima header opsional `Idempotency-Key` sepanjang 8-128 karakter. Request ulang dengan key dan payload yang sama mengembalikan transaksi sebelumnya; penggunaan key yang sama untuk payload berbeda ditolak dengan HTTP `409 Conflict`. Frontend kasir mengirim key ini secara otomatis.
 
-Penjualan dengan metode `QRIS Dummy` menggunakan payment lifecycle asynchronous. Checkout membuat payment `PENDING` dan mereservasi stok selama 15 menit tanpa langsung menguranginya. Endpoint simulator `POST /payments/{id}/simulate` menerima status `PAID`, `FAILED`, atau `EXPIRED`: pembayaran lunas memfinalisasi pengurangan stok, sedangkan gagal/kedaluwarsa melepaskan reservasi. Callback status yang sama bersifat idempotent.
+Penjualan dengan metode `QRIS Dummy` menggunakan simulated asynchronous payment lifecycle. Checkout membuat payment `PENDING` dan mereservasi stok selama 15 menit tanpa langsung menguranginya. Frontend histori menampilkan countdown dan memeriksa `GET /payments/{id}` setiap tiga detik; membuka kembali histori setelah refresh akan melanjutkan pemantauan payment pending. Status `PAID` memfinalisasi pengurangan stok, sedangkan `FAILED`, pembatalan, atau expiry melepaskan reservasi dan membatalkan transaksi. Callback status yang sama bersifat idempotent, callback `PAID` setelah expiry ditolak, dan seluruh alur hanya simulator lokal tanpa integrasi pembayaran atau uang nyata.
 | `GET, POST, PUT, DELETE` | `/masters/{name}` | Kelola master data |
 
 ### Pagination API

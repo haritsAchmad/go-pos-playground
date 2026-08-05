@@ -16,3 +16,40 @@ export function formatPaymentCountdown(seconds: number): string {
   const remainder = safeSeconds % 60
   return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
 }
+
+export function createPaymentPoller(options: {
+  poll: () => Promise<void>
+  intervalMs?: number
+  setIntervalFn?: typeof setInterval
+  clearIntervalFn?: typeof clearInterval
+}) {
+  const intervalMs = options.intervalMs ?? 3000
+  const setIntervalFn = options.setIntervalFn ?? setInterval
+  const clearIntervalFn = options.clearIntervalFn ?? clearInterval
+  let timer: ReturnType<typeof setInterval> | null = null
+  let inFlight = false
+
+  async function run() {
+    if (inFlight) return
+    inFlight = true
+    try {
+      await options.poll()
+    } finally {
+      inFlight = false
+    }
+  }
+
+  function start() {
+    if (timer) return
+    void run()
+    timer = setIntervalFn(() => void run(), intervalMs)
+  }
+
+  function stop() {
+    if (!timer) return
+    clearIntervalFn(timer)
+    timer = null
+  }
+
+  return { run, start, stop }
+}

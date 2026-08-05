@@ -36,6 +36,7 @@ func TestAuditLogIdentitySnapshotIntegration(t *testing.T) {
 		query string
 		args  []any
 	}{
+		{fmt.Sprintf(`DELETE FROM %s.schema_migrations WHERE version=5`, q), nil},
 		{fmt.Sprintf(`ALTER TABLE %s.audit_logs DROP COLUMN user_name`, q), nil},
 		{fmt.Sprintf(`ALTER TABLE %s.audit_logs DROP COLUMN user_email`, q), nil},
 		{fmt.Sprintf(`ALTER TABLE %s.audit_logs ADD CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY(user_id) REFERENCES %s.users(id) ON DELETE RESTRICT`, q, q), nil},
@@ -956,8 +957,8 @@ func TestVersionedMigrationIntegration(t *testing.T) {
 	if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT name FROM %s.schema_migrations ORDER BY version DESC LIMIT 1`, q)).Scan(&name); err != nil {
 		t.Fatalf("read latest migration: %v", err)
 	}
-	if count != 4 || name != "asynchronous payments and stock reservations" {
-		t.Fatalf("migration ledger = %d/%q, want 4/asynchronous payments and stock reservations", count, name)
+	if count != 5 || name != "audit log identity snapshot hardening" {
+		t.Fatalf("migration ledger = %d/%q, want 5/audit log identity snapshot hardening", count, name)
 	}
 }
 

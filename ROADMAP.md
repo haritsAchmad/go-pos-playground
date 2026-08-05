@@ -20,7 +20,7 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground berdasarkan implem
 - Nomor invoice berbasis sequence PostgreSQL dengan test concurrent checkout
 - Idempotency key checkout dengan perlindungan retry paralel dan deteksi payload berbeda
 
-### Fondasi simulated non-cash payment yang sudah tersedia
+### Simulated non-cash payment
 
 - Checkout `QRIS Dummy` membuat transaksi dan payment berstatus `PENDING`
 - Tabel `payments` dan `stock_reservations` menyimpan expiry 15 menit
@@ -30,25 +30,25 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground berdasarkan implem
 - Status `PAID` memfinalisasi stok; `FAILED` dan `EXPIRED` melepas reservasi serta membatalkan transaksi
 - Frontend kasir dapat membuat payment dummy dan memilih simulasi berhasil, gagal, atau membiarkannya pending
 - Histori transaksi menampilkan payment dan menyediakan aksi simulasi ulang untuk payment pending
+- Endpoint status payment mempersist expiry secara idempotent dan menjadi sumber polling frontend
+- Frontend menampilkan countdown, melakukan polling tiap tiga detik, pulih setelah refresh, dan membersihkan polling saat komponen dilepas
+- Pembatalan payment pending menggunakan endpoint lifecycle khusus yang melepas reservasi
+- Callback `PAID` setelah expiry ditolak tanpa menghidupkan kembali transaksi
+- Integration test PostgreSQL mencakup double callback, polling paralel, callback terlambat, cancel idempotent, dan race antara callback `PAID` dengan cancel
+- Unit test frontend mencakup countdown, status terminal, interval polling, cleanup, dan proteksi request overlap
 
-Fondasi di atas belum dianggap sebagai lifecycle end-to-end yang selesai. Saat ini belum ada endpoint khusus untuk membaca status payment, expiry otomatis yang memutakhirkan status persisted, polling/countdown frontend, atau recovery flow pembayaran setelah refresh/halaman ditutup.
+Lifecycle simulator sudah lengkap untuk scope portfolio/playground dan tidak terhubung ke payment gateway atau uang nyata.
 
-## In Progress — target v1.0.0-rc.1
+## In Progress — validasi v1.0.0-rc.1
 
-### Must-have
+### Must-have terselesaikan
 
-- Definisikan state transition dan aturan terminal payment secara eksplisit, termasuk callback `PAID` yang datang setelah expiry
-- Tambahkan proses expiry yang aman dan idempotent agar payment serta reservasi tidak hanya kedaluwarsa secara implisit di query stok
-- Tambahkan endpoint status payment untuk polling dan pemulihan state setelah refresh
-- Lengkapi frontend dengan status `PENDING`, countdown dari `expires_at`, polling terbatas, dan tampilan hasil terminal
-- Pastikan transaksi pending dapat ditemukan kembali dari histori setelah halaman pembayaran ditutup
-- Tentukan dan implementasikan aturan pembatalan transaksi ketika payment masih pending
-- Tambahkan test untuk expiry, double callback, callback paralel, callback terlambat, pembatalan pending, dan retry checkout dengan idempotency key yang sama
-- Dokumentasikan bahwa seluruh alur adalah simulator lokal tanpa QRIS/payment gateway nyata
+- Verifikasi manual alur kasir dari `PENDING` menuju `PAID`, `FAILED`, dan `EXPIRED`
+- Verifikasi recovery setelah refresh dan setelah halaman histori ditutup lalu dibuka kembali
+- Jalankan seluruh quality gate sebelum tag release candidate
 
 ### Should-have
 
-- Tambahkan test frontend untuk countdown, polling cleanup, refresh halaman, dan respons terminal
 - Tampilkan stok tersedia setelah memperhitungkan reservasi aktif pada pengalaman kasir
 - Berikan pesan error yang konsisten untuk konflik state dan payment yang sudah terminal
 - Tambahkan audit trail untuk perubahan status payment yang dipicu simulator atau expiry

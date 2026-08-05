@@ -12,6 +12,9 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 - Fondasi backend pembayaran asynchronous `QRIS Dummy`: payment `PENDING`, reservasi stok 15 menit, dan endpoint simulator untuk status `PAID`, `FAILED`, atau `EXPIRED`.
 - Proteksi idempotent untuk replay status payment yang sama serta callback `PAID` paralel agar stok hanya difinalisasi sekali.
 - Alur frontend dasar untuk membuat payment dummy, memilih hasil simulasi secara manual, dan melanjutkan payment pending dari histori transaksi.
+- Endpoint baca status payment dengan expiry persisted otomatis serta endpoint pembatalan payment pending yang idempotent.
+- Countdown dan polling payment pada histori transaksi dengan recovery setelah refresh, cleanup interval, dan proteksi request overlap.
+- Integration test untuk polling expiry paralel, callback terlambat, cancel idempotent, serta race callback `PAID` dengan cancel.
 - Daftar data terhapus dan aksi pemulihan untuk barang, pelanggan, dan supplier dengan validasi konflik kode/SKU aktif.
 - Bulk soft delete dan bulk restore hingga 100 barang, pelanggan, atau supplier dengan hasil per item dan audit target.
 - Pelunasan massal beberapa piutang dengan histori pembayaran individual serta reset stok massal ke 0 dengan stock movement per barang.
@@ -81,9 +84,8 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 - Memperbaiki pattern kode/SKU agar valid pada browser yang menggunakan regular expression mode `v`.
 - Menyamakan dokumentasi port backend dengan proxy frontend.
 
-### Known limitations
+### Scope limitation
 
-- Simulated non-cash payment belum memiliki endpoint baca status khusus, expiry persisted otomatis, polling/countdown frontend, dan recovery flow lengkap setelah refresh atau halaman ditutup. Penyelesaiannya ditargetkan pada `v1.0.0-rc.1`.
 - `QRIS Dummy` hanya simulator lokal untuk portfolio/playground dan tidak terhubung ke QRIS, payment gateway, kartu, atau uang nyata.
 
 ### Security
