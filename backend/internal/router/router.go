@@ -170,7 +170,13 @@ func New(
 		}
 		protect(cooperativeHandler.VoidTransaction, "admin", "cashier")(w, r)
 	})
-	mux.HandleFunc("/payments/", protect(cooperativeHandler.SimulatePayment, "admin", "cashier"))
+	mux.HandleFunc("/payments/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			protect(cooperativeHandler.PaymentStatus, "admin", "cashier", "viewer")(w, r)
+			return
+		}
+		protect(cooperativeHandler.SimulatePayment, "admin", "cashier")(w, r)
+	})
 	mux.HandleFunc("/debts", protect(cooperativeHandler.Debts, "admin", "cashier", "viewer"))
 	mux.HandleFunc("/debts/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {

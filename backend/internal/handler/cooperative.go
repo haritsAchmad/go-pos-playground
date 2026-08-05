@@ -372,10 +372,33 @@ func (h *CooperativeHandler) SimulatePayment(w http.ResponseWriter, r *http.Requ
 	}
 	payment, err := h.repo.SetDummyPaymentStatus(r.Context(), id, strings.ToUpper(req.Status))
 	if err != nil {
+		if errors.Is(err, repository.ErrPaymentExpired) {
+			response.Error(w, http.StatusConflict, err.Error())
+			return
+		}
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	response.Success(w, http.StatusOK, "dummy payment updated", payment)
+}
+
+func (h *CooperativeHandler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	part := strings.Trim(strings.TrimPrefix(r.URL.Path, "/payments/"), "/")
+	id, err := strconv.ParseInt(part, 10, 64)
+	if err != nil || id < 1 {
+		response.Error(w, http.StatusBadRequest, "invalid payment ID")
+		return
+	}
+	payment, err := h.repo.DummyPayment(r.Context(), id)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(w, http.StatusOK, "payment status fetched", payment)
 }
 
 func (h *CooperativeHandler) VoidTransaction(w http.ResponseWriter, r *http.Request) {

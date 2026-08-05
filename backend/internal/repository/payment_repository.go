@@ -11,6 +11,44 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+var ErrPaymentExpired = errors.New("payment expired before it could be paid")
+
+func (r *CooperativeRepository) DummyPayment(ctx context.Context, paymentID int64) (entity.Payment, error) {
+	payment, err := r.dummyPayment(ctx, paymentID)
+	if err != nil {
+		return entity.Payment{}, err
+	}
+	if payment.Status == "PENDING" && !time.Now().Before(payment.ExpiresAt) {
+		payment, err = r.SetDummyPaymentStatus(ctx, paymentID, "EXPIRED")
+		if err != nil {
+			// Another request may have completed the payment after the initial read.
+			return r.dummyPayment(ctx, paymentID)
+		}
+	}
+	return payment, nil
+}
+
+func (r *CooperativeRepository) dummyPayment(ctx context.Context, paymentID int64) (entity.Payment, error) {
+	var payment entity.Payment
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id,transaction_id,provider,external_reference,status,amount,paid_at,expires_at,created_at
+		FROM %s.payments WHERE id=$1
+	`, r.schema), paymentID).Scan(
+		&payment.ID, &payment.TransactionID, &payment.Provider, &payment.ExternalReference,
+		&payment.Status, &payment.Amount, &payment.PaidAt, &payment.ExpiresAt, &payment.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return entity.Payment{}, errors.New("payment not found")
+	}
+	if err != nil {
+		return entity.Payment{}, err
+	}
+	if payment.Provider != "DUMMY" {
+		return entity.Payment{}, errors.New("payment is not handled by dummy provider")
+	}
+	return payment, nil
+}
+
 func (r *CooperativeRepository) SetDummyPaymentStatus(ctx context.Context, paymentID int64, desired string) (entity.Payment, error) {
 	if desired != "PAID" && desired != "FAILED" && desired != "EXPIRED" {
 		return entity.Payment{}, errors.New("payment status must be PAID, FAILED, or EXPIRED")
@@ -48,8 +86,9 @@ func (r *CooperativeRepository) SetDummyPaymentStatus(ctx context.Context, payme
 	if payment.Status != "PENDING" {
 		return entity.Payment{}, fmt.Errorf("payment is already %s", payment.Status)
 	}
-	if desired == "PAID" && time.Now().After(payment.ExpiresAt) {
-		return entity.Payment{}, errors.New("expired payment cannot be paid")
+	latePaidCallback := desired == "PAID" && !time.Now().Before(payment.ExpiresAt)
+	if latePaidCallback {
+		desired = "EXPIRED"
 	}
 
 	reservationStatus := map[string]string{"PAID": "FULFILLED", "FAILED": "RELEASED", "EXPIRED": "EXPIRED"}[desired]
@@ -108,5 +147,8 @@ func (r *CooperativeRepository) SetDummyPaymentStatus(ctx context.Context, payme
 		return entity.Payment{}, err
 	}
 	payment.Status = desired
+	if latePaidCallback {
+		return payment, ErrPaymentExpired
+	}
 	return payment, nil
 }

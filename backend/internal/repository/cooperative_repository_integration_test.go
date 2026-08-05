@@ -717,6 +717,59 @@ func TestDummyAsyncPaymentIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("late paid callback persists expiry and releases reservation", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		request := f.request("SALE", 10, 0, false)
+		request.PaymentMethodID = &f.qrisID
+		request.PaymentProvider = "DUMMY"
+		transaction, err := f.repository.CreateTransaction(f.ctx, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.db.Exec(f.ctx, fmt.Sprintf(`UPDATE %s.payments SET expires_at=NOW()-INTERVAL '1 second' WHERE id=$1`, pgx.Identifier{f.schema}.Sanitize()), transaction.Payment.ID); err != nil {
+			t.Fatalf("expire payment fixture: %v", err)
+		}
+
+		payment, err := f.repository.SetDummyPaymentStatus(f.ctx, transaction.Payment.ID, "PAID")
+		if !errors.Is(err, ErrPaymentExpired) || payment.Status != "EXPIRED" {
+			t.Fatalf("late callback: payment=%+v err=%v", payment, err)
+		}
+		persisted, err := f.repository.DummyPayment(f.ctx, transaction.Payment.ID)
+		if err != nil || persisted.Status != "EXPIRED" {
+			t.Fatalf("persisted payment: payment=%+v err=%v", persisted, err)
+		}
+		if _, err := f.repository.CreateTransaction(f.ctx, f.request("SALE", 10, 10000, false)); err != nil {
+			t.Fatalf("sale after automatic expiry: %v", err)
+		}
+	})
+
+	t.Run("status read persists expired pending payment", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		request := f.request("SALE", 2, 0, false)
+		request.PaymentMethodID = &f.qrisID
+		request.PaymentProvider = "DUMMY"
+		transaction, err := f.repository.CreateTransaction(f.ctx, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.db.Exec(f.ctx, fmt.Sprintf(`UPDATE %s.payments SET expires_at=NOW()-INTERVAL '1 second' WHERE id=$1`, pgx.Identifier{f.schema}.Sanitize()), transaction.Payment.ID); err != nil {
+			t.Fatalf("expire payment fixture: %v", err)
+		}
+
+		payment, err := f.repository.DummyPayment(f.ctx, transaction.Payment.ID)
+		if err != nil || payment.Status != "EXPIRED" {
+			t.Fatalf("status read: payment=%+v err=%v", payment, err)
+		}
+		var transactionStatus, reservationStatus string
+		q := pgx.Identifier{f.schema}.Sanitize()
+		if err := f.db.QueryRow(f.ctx, fmt.Sprintf(`SELECT t.status,r.status FROM %s.transactions t JOIN %s.payments p ON p.transaction_id=t.id JOIN %s.stock_reservations r ON r.payment_id=p.id WHERE p.id=$1`, q, q, q), transaction.Payment.ID).Scan(&transactionStatus, &reservationStatus); err != nil {
+			t.Fatal(err)
+		}
+		if transactionStatus != "VOID" || reservationStatus != "EXPIRED" {
+			t.Fatalf("expired state transaction=%s reservation=%s", transactionStatus, reservationStatus)
+		}
+	})
+
 	t.Run("concurrent paid callbacks only deduct once", func(t *testing.T) {
 		f := newTransactionFixture(t)
 		request := f.request("SALE", 3, 0, false)
