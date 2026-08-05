@@ -1,5 +1,6 @@
 import Swal from 'sweetalert2'
 import type { Ref } from 'vue'
+import { formatPaymentCountdown, isTerminalPaymentStatus, paymentSecondsRemaining } from '~/utils/payment'
 
 type Submit=(action:()=>Promise<any>,message:string,reload:Array<()=>Promise<void>>,confirmation?:string|false)=>Promise<boolean>
 
@@ -10,6 +11,10 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
   const transactionContext=ref<'sale'|'purchase'>('sale')
   const expandedTransaction=ref<number|null>(null)
   const selectedReceipt=ref<any>(null)
+	const paymentNow=ref(Date.now())
+	let paymentTimer:ReturnType<typeof setInterval>|null=null
+	let paymentPollInFlight=false
+	let paymentTick=0
   const editDraft=useState<any|null>('transaction-edit-draft',()=>null)
   const lineTotal=computed(()=>transactionForm.items.reduce((sum:number,line:any)=>sum+(Number(line.quantity)||0)*(Number(line.unit_price)||0),0))
   const changeAmount=computed(()=>Number(transactionForm.paid_amount||0)-lineTotal.value)
@@ -17,7 +22,30 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
   const transactionItems=computed(()=>active.value==='purchase'?data.items.filter((v:any)=>Number(v.supplier_id)===Number(transactionForm.supplier_id)):data.items)
   const filteredTransactions=computed(()=>data.transactions.filter((v:any)=>{const query=filters.historySearch.toLowerCase();const matchesSearch=!query||[v.invoice_no,v.customer_name,v.supplier_name,v.notes].some(x=>String(x||'').toLowerCase().includes(query));const matchesType=!filters.historyType||v.transaction_type===filters.historyType;const matchesStatus=!filters.historyStatus||(filters.historyStatus==='ACTIVE'?v.status==='ACTIVE':filters.historyStatus==='VOID'?v.status==='VOID':v.payment_status===filters.historyStatus);return matchesSearch&&matchesType&&matchesStatus}))
 
-  async function loadTransactions(){data.transactions=await api.transactions()}
+	async function pollPendingPayments(){
+		if(paymentPollInFlight||active.value!=='history')return
+		const pending=data.transactions.filter((transaction:any)=>transaction.payment?.status==='PENDING')
+		if(!pending.length)return
+		paymentPollInFlight=true
+		try{
+			let terminalDetected=false
+			await Promise.all(pending.map(async(transaction:any)=>{
+				const payment=await api.paymentStatus(transaction.payment.id)
+				transaction.payment=payment
+				if(isTerminalPaymentStatus(payment.status))terminalDetected=true
+			}))
+			if(terminalDetected)await Promise.all([loadTransactions(),reloadDashboard(),reloadItems(),reloadDebts()])
+		}catch{
+			// A transient polling failure is retried on the next interval.
+		}finally{paymentPollInFlight=false}
+	}
+	async function loadTransactions(){data.transactions=await api.transactions();if(active.value==='history')void pollPendingPayments()}
+	function paymentCountdown(transaction:any){return formatPaymentCountdown(paymentSecondsRemaining(transaction.payment?.expires_at,paymentNow.value))}
+	function paymentStatusLabel(transaction:any){
+		const status=transaction.payment?.status
+		if(status==='PENDING')return`Menunggu · ${paymentCountdown(transaction)}`
+		return status||transaction.payment_status
+	}
   async function voidTransaction(v:any){const stockEffect=v.transaction_type==='SALE'?'Stok barang penjualan akan dikembalikan.':'Stok dari pembelian akan dikurangi; pembatalan ditolak jika stok sudah terpakai.';const result=await Swal.fire({icon:'warning',title:`Batalkan ${v.invoice_no}?`,text:stockEffect,input:'textarea',inputLabel:'Alasan pembatalan',inputPlaceholder:'Tulis alasan (minimal 5 karakter)',showCancelButton:true,confirmButtonText:'Ya, batalkan',cancelButtonText:'Kembali',confirmButtonColor:'#b8322a',inputValidator:(value)=>!value||value.trim().length<5?'Alasan pembatalan minimal 5 karakter.':undefined});if(!result.isConfirmed)return;await submit(()=>api.voidTransaction(v.id,result.value.trim()),`Transaksi dibatalkan. ${stockEffect}`,[reloadDashboard,reloadItems,loadTransactions,reloadDebts],false)}
   function addLine(){transactionForm.items.push(emptyLine())}
   function resetTransaction(context:string=active.value){editing.transaction=null;transactionContext.value=context==='purchase'?'purchase':'sale';Object.assign(transactionForm,{customer_id:context==='sale'?data.customers.find((c:any)=>c.code==='UMUM')?.id||null:null,supplier_id:null,payment_method_id:null,paid_amount:0,notes:'',items:[emptyLine()]})}
@@ -49,9 +77,18 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
 		await Promise.all([reloadDashboard(),reloadItems(),loadTransactions(),reloadDebts()])
 	}
 
+	if(import.meta.client){
+		paymentTimer=setInterval(()=>{
+			paymentNow.value=Date.now()
+			paymentTick+=1
+			if(paymentTick%3===0)void pollPendingPayments()
+		},1000)
+	}
+	onUnmounted(()=>{if(paymentTimer)clearInterval(paymentTimer)})
+
   if(editDraft.value&&editDraft.value.context===active.value){editing.transaction=editDraft.value.id;transactionContext.value=editDraft.value.context;Object.assign(transactionForm,editDraft.value.form);editDraft.value=null}
 
   watch(()=>transactionForm.supplier_id,()=>{if(active.value==='purchase'){transactionForm.items=transactionForm.items.map((line:any)=>transactionItems.value.some((v:any)=>v.id===Number(line.item_id))?line:emptyLine())}})
 
-	return {transactionForm,transactionContext,expandedTransaction,selectedReceipt,lineTotal,changeAmount,isAsyncPayment,transactionItems,filteredTransactions,loadTransactions,voidTransaction,simulatePendingPayment,addLine,resetTransaction,editTransaction,saveTransaction,availableUnits,chooseUnit,chooseItem,stockLabel,printReceipt}
+	return {transactionForm,transactionContext,expandedTransaction,selectedReceipt,lineTotal,changeAmount,isAsyncPayment,transactionItems,filteredTransactions,loadTransactions,voidTransaction,simulatePendingPayment,paymentCountdown,paymentStatusLabel,addLine,resetTransaction,editTransaction,saveTransaction,availableUnits,chooseUnit,chooseItem,stockLabel,printReceipt}
 }
