@@ -9,7 +9,9 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 - Nomor invoice transaksi berbasis sequence PostgreSQL yang aman untuk checkout paralel.
 - Integration test concurrent checkout untuk memastikan invoice unik dan stok tetap konsisten.
 - Idempotency key checkout untuk mencegah transaksi dan pengurangan stok ganda saat request diulang.
-- QRIS Dummy asynchronous dengan status pembayaran, simulator callback, dan reservasi stok hingga pembayaran selesai.
+- Fondasi backend pembayaran asynchronous `QRIS Dummy`: payment `PENDING`, reservasi stok 15 menit, dan endpoint simulator untuk status `PAID`, `FAILED`, atau `EXPIRED`.
+- Proteksi idempotent untuk replay status payment yang sama serta callback `PAID` paralel agar stok hanya difinalisasi sekali.
+- Alur frontend dasar untuk membuat payment dummy, memilih hasil simulasi secara manual, dan melanjutkan payment pending dari histori transaksi.
 - Daftar data terhapus dan aksi pemulihan untuk barang, pelanggan, dan supplier dengan validasi konflik kode/SKU aktif.
 - Bulk soft delete dan bulk restore hingga 100 barang, pelanggan, atau supplier dengan hasil per item dan audit target.
 - Pelunasan massal beberapa piutang dengan histori pembayaran individual serta reset stok massal ke 0 dengan stock movement per barang.
@@ -78,6 +80,11 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 - Mempertahankan data transaksi yang akan diubah ketika berpindah dari halaman histori ke halaman kasir atau pembelian.
 - Memperbaiki pattern kode/SKU agar valid pada browser yang menggunakan regular expression mode `v`.
 - Menyamakan dokumentasi port backend dengan proxy frontend.
+
+### Known limitations
+
+- Simulated non-cash payment belum memiliki endpoint baca status khusus, expiry persisted otomatis, polling/countdown frontend, dan recovery flow lengkap setelah refresh atau halaman ditutup. Penyelesaiannya ditargetkan pada `v1.0.0-rc.1`.
+- `QRIS Dummy` hanya simulator lokal untuk portfolio/playground dan tidak terhubung ke QRIS, payment gateway, kartu, atau uang nyata.
 
 ### Security
 
