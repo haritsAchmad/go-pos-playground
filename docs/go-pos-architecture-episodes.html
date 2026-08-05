@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Go POS Playground — Architecture Episodes</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 19mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: #1f2933; font: 10.6pt/1.58 "Segoe UI", Arial, sans-serif; background: white; }
+  h1,h2,h3 { color: #102a43; line-height: 1.18; page-break-after: avoid; }
+  h1 { font-size: 30pt; margin: 0 0 10mm; }
+  h2 { font-size: 20pt; margin: 0 0 5mm; }
+  h3 { font-size: 12pt; margin: 6mm 0 2mm; color: #0b7285; }
+  p { margin: 0 0 3.2mm; }
+  ul,ol { margin: 2mm 0 4mm 6mm; padding-left: 5mm; }
+  li { margin: 1.2mm 0; }
+  code { color: #7c2d12; background: #fff7ed; padding: .2mm 1mm; border-radius: 1mm; }
+  pre { white-space: pre-wrap; background: #102a43; color: #e6fffa; padding: 4mm; border-radius: 2mm; font: 9pt/1.45 Consolas, monospace; page-break-inside: avoid; }
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+  .cover .eyebrow { color: #0b7285; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; }
+  .cover .subtitle { font-size: 15pt; color: #52606d; max-width: 145mm; }
+  .cover .meta { margin-top: 25mm; color: #627d98; border-left: 3px solid #2ec4b6; padding-left: 4mm; }
+  .toc { page-break-after: always; }
+  .toc table { width: 100%; border-collapse: collapse; }
+  .toc td { border-bottom: 1px solid #d9e2ec; padding: 2.5mm 0; }
+  .toc td:first-child { width: 25mm; color: #0b7285; font-weight: 700; }
+  .episode { page-break-before: always; }
+  .episode-number { color: #0b7285; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  .lead { font-size: 12.5pt; color: #334e68; border-left: 3px solid #2ec4b6; padding-left: 4mm; }
+  .takeaway { margin-top: 6mm; padding: 4mm; background: #e6fffa; border: 1px solid #99e9f2; border-radius: 2mm; font-weight: 650; page-break-inside: avoid; }
+  .where { padding: 3mm 4mm; background: #f0f4f8; border-radius: 2mm; page-break-inside: avoid; }
+  .diagram { text-align: center; font-family: Consolas, monospace; color: #243b53; background: #f8fafc; border: 1px solid #bcccdc; padding: 4mm; page-break-inside: avoid; }
+  .summary { page-break-before: always; }
+  .summary table { width: 100%; border-collapse: collapse; }
+  .summary th,.summary td { border: 1px solid #bcccdc; padding: 3mm; vertical-align: top; }
+  .summary th { background: #102a43; color: white; text-align: left; }
+  .commit { background: #102a43; color: white; padding: 4mm; border-radius: 2mm; font-family: Consolas, monospace; }
+  .muted { color: #627d98; }
+</style>
+</head>
+<body>
+<section class="cover">
+  <div class="eyebrow">Go POS Playground</div>
+  <h1>Architecture<br>Episodes</h1>
+  <p class="subtitle">Delapan konsep yang mengubah aplikasi CRUD menjadi sistem yang tahan retry, concurrency, kegagalan parsial, dan perubahan data.</p>
+  <div class="meta">Repository Pattern · Database Transaction · Idempotency · Stock Reservation · Async Payment · Audit Log · Soft Delete · Refresh Token</div>
+</section>
+
+<section class="toc">
+  <h2>Daftar Episode</h2>
+  <table>
+    <tr><td>01</td><td>Kenapa Repository Pattern?</td></tr>
+    <tr><td>02</td><td>Kenapa Database Transaction?</td></tr>
+    <tr><td>03</td><td>Kenapa Idempotency?</td></tr>
+    <tr><td>04</td><td>Kenapa Stock Reservation?</td></tr>
+    <tr><td>05</td><td>Kenapa Async Payment?</td></tr>
+    <tr><td>06</td><td>Kenapa Audit Log?</td></tr>
+    <tr><td>07</td><td>Kenapa Soft Delete?</td></tr>
+    <tr><td>08</td><td>Kenapa Refresh Token?</td></tr>
+  </table>
+  <h3>Cara membaca</h3>
+  <p>Setiap episode dimulai dari masalah, dilanjutkan pola penyelesaian, lalu menunjukkan lokasi implementasinya di repository. Fokusnya bukan menghafal istilah, tetapi memahami alasan sebuah pola muncul.</p>
+</section>
+
+<section class="episode">
+  <div class="episode-number">Episode 01</div><h2>Kenapa Repository Pattern?</h2>
+  <p class="lead">Repository memisahkan aturan penyimpanan data dari aturan HTTP dan tampilan aplikasi.</p>
+  <h3>Masalahnya</h3>
+  <p>Tanpa repository, handler mudah berubah menjadi tempat segala hal: membaca JSON, memvalidasi input, menulis SQL, mengunci row, menghitung stok, dan membuat response. Kode menjadi sulit dibaca dan aturan database tersebar.</p>
+  <div class="diagram">HTTP Request → Handler → Repository → PostgreSQL</div>
+  <h3>Pattern-nya</h3>
+  <p>Handler menangani bahasa HTTP. Repository menangani bahasa persistence: query, transaction, locking, serta pemetaan row database menjadi entity.</p>
+  <ul><li>Handler fokus pada request dan response.</li><li>Repository mengumpulkan SQL serta invariannya.</li><li>Test dapat memanggil repository langsung tanpa browser.</li></ul>
+  <div class="where"><b>Lihat di repo:</b> <code>backend/internal/handler/cooperative.go</code> dan <code>backend/internal/repository/cooperative_repository.go</code>. Struct utamanya adalah <code>CooperativeRepository</code>.</div>
+  <div class="takeaway">Repository menjawab: “Bagaimana domain mengambil dan menyimpan data tanpa membuat semua lapisan memahami SQL?”</div>
+</section>
+
+<section class="episode">
+  <div class="episode-number">Episode 02</div><h2>Kenapa Database Transaction?</h2>
+  <p class="lead">Satu proses bisnis sering terdiri dari banyak query, tetapi semuanya harus dianggap sebagai satu perubahan.</p>
+  <h3>Contoh checkout</h3>
+  <ol><li>Membuat header transaksi.</li><li>Membuat baris barang.</li><li>Mengubah stok.</li><li>Mencatat stock movement.</li><li>Membuat piutang atau payment.</li></ol>
+  <p>Kalau langkah keempat gagal setelah tiga langkah pertama tersimpan, database menjadi setengah benar. Transaction memberi dua hasil saja:</p>
+  <pre>Semua berhasil  → COMMIT
+Satu saja gagal → ROLLBACK semuanya</pre>
+  <p>Transaction juga bekerja bersama <code>SELECT ... FOR UPDATE</code>. Dua kasir yang menjual barang terakhir tidak boleh sama-sama membaca stok lama dan sama-sama berhasil.</p>
+  <div class="where"><b>Lihat di repo:</b> fungsi <code>CreateTransaction</code> di <code>backend/internal/repository/cooperative_repository.go</code>. Cari <code>Begin(ctx)</code>, <code>FOR UPDATE</code>, <code>Commit</code>, dan deferred <code>Rollback</code>.</div>
+  <div class="takeaway">Transaction menjaga perubahan lintas tabel tetap atomik: lengkap semuanya atau tidak terjadi sama sekali.</div>
+</section>
+
+<section class="episode">
+  <div class="episode-number">Episode 03</div><h2>Kenapa Idempotency?</h2>
+  <p class="lead">Jaringan tidak dapat menjamin response selalu sampai, jadi request yang sama kadang harus dikirim ulang.</p>
+  <pre>Frontend ── checkout ──→ Backend
+Backend membuat transaksi
+Frontend ←── response putus
+Frontend melakukan retry</pre>
+  <p>Tanpa idempotency, retry bisa membuat dua transaksi dan mengurangi stok dua kali. Frontend mengirim <code>Idempotency-Key</code>; backend menyimpan key dan hash payload.</p>
+  <ul><li>Key baru: proses checkout.</li><li>Key dan payload sama: kembalikan transaksi sebelumnya.</li><li>Key sama, payload berbeda: tolak sebagai conflict.</li><li>Retry paralel: PostgreSQL advisory lock memastikan satu pembuat.</li></ul>
+  <div class="where"><b>Lihat di repo:</b> header dibaca di <code>backend/internal/handler/cooperative.go</code>. Replay detection dan <code>pg_advisory_xact_lock</code> ada di <code>cooperative_repository.go</code>. Skenario retry berada di integration test.</div>
+  <div class="takeaway">Idempotency menjawab: “Kalau request terkirim dua kali, bagaimana efek bisnisnya tetap hanya sekali?”</div>
+</section>
+
+<section class="episode">
+  <div class="episode-number">Episode 04</div><h2>Kenapa Stock Reservation?</h2>
+  <p class="lead">Payment belum berhasil, tetapi stok yang sedang dibayar juga tidak boleh dijual ke orang lain.</p>
+  <pre>Stok fisik    10
+Reserved       3
+Tersedia       7</pre>
+  <p>Reservation bukan pengurangan stok final. Ia adalah klaim sementara dengan masa berlaku.</p>
+  <div class="diagram">PENDING → ACTIVE reservation<br>PAID → FULFILLED + kurangi stok<br>FAILED → RELEASED<br>EXPIRED → EXPIRED</div>
+  <p>Query ketersediaan menghitung stok fisik dikurangi semua reservation aktif yang belum kedaluwarsa. Dengan begitu aplikasi mencegah overselling tanpa menganggap payment pending sudah lunas.</p>
+  <div class="where"><b>Lihat di repo:</b> pembuatan <code>stock_reservations</code> dan perhitungan reserved stock di <code>cooperative_repository.go</code>; finalisasi dan pelepasannya di <code>payment_repository.go</code>.</div>
+  <div class="takeaway">Reservation menjembatani perbedaan waktu antara “barang dipilih” dan “pembayaran sudah pasti”.</div>
+</section>
+
+<section class="episode">
+  <div class="episode-number">Episode 05</div><h2>Kenapa Async Payment?</h2>
+  <p class="lead">Hasil pembayaran digital tidak selalu diketahui pada saat transaksi dibuat.</p>
+  <div class="diagram">Checkout → PENDING → polling/callback → PAID | FAILED | EXPIRED</div>
+  <p>Pada pembayaran tunai, kasir mengetahui hasilnya langsung. Pada pembayaran asynchronous, sistem menunggu aktivitas di waktu berbeda. Karena itu payment membutuhkan state machine.</p>
+  <h3>Aturan terminal</h3>
+  <p>Perpindahan yang sah adalah dari <code>PENDING</code> menuju salah satu state terminal. State terminal tidak boleh hidup kembali. Callback <code>PAID</code> setelah expiry harus ditolak, dan callback sama yang dikirim ulang harus idempotent.</p>
+  <p>Go POS hanya menyimulasikan pola ini. Tidak ada QRIS nyata, kartu, payment gateway, atau perpindahan uang.</p>
+  <div class="where"><b>Lihat di repo:</b> lifecycle di <code>backend/internal/repository/payment_repository.go</code>, endpoint status/simulator/cancel di handler, serta countdown dan polling di <code>frontend/composables/useTransactions.ts</code> dan <code>frontend/utils/payment.ts</code>.</div>
+  <div class="takeaway">Async payment memisahkan waktu pembuatan transaksi dari waktu kepastian hasil pembayaran.</div>
+</section>
+
+<section class="episode">
+  <div class="episode-number">Episode 06</div><h2>Kenapa Audit Log?</h2>
+  <p class="lead">Data akhir memberi tahu apa kondisinya sekarang; audit log memberi tahu bagaimana kondisi itu terjadi.</p>
+  <p>Audit log membantu menjawab siapa melakukan apa, kapan, lewat endpoint mana, terhadap entity apa, dan apakah request berhasil.</p>
+  <pre>Admin A · UPDATE · item 42
+PUT /items/42 · HTTP 200
+2026-08-05 14:30</pre>
+  <p>Audit log berbeda dari application log. Application log membantu developer mendiagnosis sistem; audit log menjaga jejak tindakan bisnis pengguna.</p>
+  <p>Nama dan email disimpan sebagai snapshot. Jika akun pengguna kemudian dihapus, histori lama tetap dapat menjelaskan pelakunya dan foreign key tidak menghalangi penghapusan akun.</p>
+  <div class="where"><b>Lihat di repo:</b> entity di <code>backend/internal/entity/audit_log.go</code>, persistence di <code>audit_repository.go</code>, middleware audit, dan migration identity snapshot di <code>database/postgres.go</code>.</div>
+  <div class="takeaway">Audit log adalah jejak bisnis yang tetap bermakna walaupun data utama berubah atau pengguna dihapus.</div>
+</section>
+
+<section class="episode">
+  <div class="episode-number">Episode 07</div><h2>Kenapa Soft Delete?</h2>
+  <p class="lead">Kadang “hapus” berarti menyembunyikan dari operasi aktif, bukan menghilangkan histori secara permanen.</p>
+  <pre>Hard delete: DELETE FROM items WHERE id = 42;
+Soft delete: UPDATE items SET deleted_at = NOW() WHERE id = 42;</pre>
+  <p>Query operasional memakai <code>deleted_at IS NULL</code>. Data terhapus masih bisa dipulihkan, transaksi lama tetap memiliki referensi, dan kesalahan operator lebih mudah diperbaiki.</p>
+  <h3>Trade-off</h3>
+  <ul><li>Setiap query aktif harus konsisten memfilter deleted row.</li><li>Unique constraint sering perlu partial unique index.</li><li>Restore harus memeriksa konflik kode atau SKU yang sudah dipakai kembali.</li><li>Database tetap menyimpan data dan terus bertambah.</li></ul>
+  <div class="where"><b>Lihat di repo:</b> filter, delete, daftar terhapus, dan restore di <code>item_repository.go</code>, <code>suppliers_repository.go</code>, serta customer repository.</div>
+  <div class="takeaway">Soft delete menukar kesederhanaan hard delete dengan recovery, histori, dan keamanan operasional.</div>
+</section>
+
+<section class="episode">
+  <div class="episode-number">Episode 08</div><h2>Kenapa Refresh Token?</h2>
+  <p class="lead">Access token sebaiknya singkat untuk keamanan, tetapi pengguna tidak seharusnya login ulang setiap beberapa menit.</p>
+  <div class="diagram">Login → access token pendek + refresh token panjang<br>Access token mendekati expiry → refresh → pasangan token baru</div>
+  <p>Refresh token disimpan pada cookie <code>HttpOnly</code>, sedangkan database hanya menyimpan hash-nya. Jika database bocor, raw token tidak langsung tersedia.</p>
+  <h3>Rotation</h3>
+  <ol><li>Refresh token lama diverifikasi.</li><li>Token lama dicabut.</li><li>Session dan refresh token baru dibuat.</li><li>Token lama tidak dapat digunakan lagi.</li></ol>
+  <p>Berbeda dari JWT panjang tanpa state, session refresh dapat dicabut ketika logout, akun dinonaktifkan, atau token digunakan ulang.</p>
+  <div class="where"><b>Lihat di repo:</b> pembuatan dan hashing token di <code>backend/internal/auth/refresh.go</code>; create, rotate, dan revoke session di <code>backend/internal/repository/auth_repository.go</code>; orchestration HTTP di <code>backend/internal/handler/auth.go</code>.</div>
+  <div class="takeaway">Access token memberi akses singkat; refresh token menjaga kenyamanan login dengan session yang tetap bisa dikontrol server.</div>
+</section>
+
+<section class="summary">
+  <h2>Peta Besar</h2>
+  <table>
+    <tr><th>Konsep</th><th>Masalah yang diselesaikan</th></tr>
+    <tr><td>Repository</td><td>SQL dan aturan persistence berceceran di handler.</td></tr>
+    <tr><td>Transaction</td><td>Perubahan lintas tabel tersimpan setengah jadi.</td></tr>
+    <tr><td>Idempotency</td><td>Retry jaringan menghasilkan efek bisnis ganda.</td></tr>
+    <tr><td>Stock Reservation</td><td>Overselling selama payment belum selesai.</td></tr>
+    <tr><td>Async Payment</td><td>Hasil pembayaran diketahui di waktu berbeda.</td></tr>
+    <tr><td>Audit Log</td><td>Tidak diketahui siapa menyebabkan perubahan data.</td></tr>
+    <tr><td>Soft Delete</td><td>Kesalahan hapus merusak histori dan sulit dipulihkan.</td></tr>
+    <tr><td>Refresh Token</td><td>Menyeimbangkan session nyaman dan access token pendek.</td></tr>
+  </table>
+  <h3>Judul commit yang disarankan</h3>
+  <p>Payment lifecycle dan dokumentasi:</p>
+  <div class="commit">feat(payment): complete simulated async payment lifecycle</div>
+  <p style="margin-top:4mm">Migration audit log:</p>
+  <div class="commit">fix(database): harden audit log identity snapshot migration</div>
+  <p class="muted" style="margin-top:10mm">Disusun dari implementasi aktual Go POS Playground. Tujuan project: portfolio dan playground pembelajaran, bukan sistem pembayaran produksi.</p>
+</section>
+</body>
+</html>
