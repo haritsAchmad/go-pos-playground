@@ -401,6 +401,25 @@ func (h *CooperativeHandler) PaymentStatus(w http.ResponseWriter, r *http.Reques
 	response.Success(w, http.StatusOK, "payment status fetched", payment)
 }
 
+func (h *CooperativeHandler) CancelPayment(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/cancel") {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	part := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/payments/"), "/cancel")
+	id, err := strconv.ParseInt(strings.Trim(part, "/"), 10, 64)
+	if err != nil || id < 1 {
+		response.Error(w, http.StatusBadRequest, "invalid payment ID")
+		return
+	}
+	payment, err := h.repo.SetDummyPaymentStatus(r.Context(), id, "FAILED")
+	if err != nil {
+		response.Error(w, http.StatusConflict, err.Error())
+		return
+	}
+	response.Success(w, http.StatusOK, "pending payment cancelled", payment)
+}
+
 func (h *CooperativeHandler) VoidTransaction(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPut && !strings.HasSuffix(r.URL.Path, "/void") {
 		part := strings.Trim(strings.TrimPrefix(r.URL.Path, "/transactions/"), "/")

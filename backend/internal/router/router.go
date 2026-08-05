@@ -175,6 +175,10 @@ func New(
 			protect(cooperativeHandler.PaymentStatus, "admin", "cashier", "viewer")(w, r)
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "/cancel") {
+			protect(cooperativeHandler.CancelPayment, "admin", "cashier")(w, r)
+			return
+		}
 		protect(cooperativeHandler.SimulatePayment, "admin", "cashier")(w, r)
 	})
 	mux.HandleFunc("/debts", protect(cooperativeHandler.Debts, "admin", "cashier", "viewer"))

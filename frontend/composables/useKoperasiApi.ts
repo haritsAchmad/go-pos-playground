@@ -98,6 +98,7 @@ export function useKoperasiApi() {
     createTransaction: (body: any, idempotencyKey = globalThis.crypto.randomUUID()) => request('/transactions', { method: 'POST', body, headers: { 'Idempotency-Key': idempotencyKey } }),
 		simulatePayment: (id: number, status: 'PAID'|'FAILED'|'EXPIRED') => request(`/payments/${id}/simulate`, { method: 'POST', body: { status } }),
 		paymentStatus: (id: number) => request(`/payments/${id}`),
+		cancelPayment: (id: number) => request(`/payments/${id}/cancel`, { method: 'POST' }),
     updateTransaction: (id: number, body: any) => request(`/transactions/${id}`, { method: 'PUT', body }),
     voidTransaction: (id: number, reason: string) => request(`/transactions/${id}/void`, { method: 'POST', body: { reason } }),
     payDebt: (id: number, body: any) => request(`/debts/${id}/payments`, { method: 'POST', body }),

@@ -71,9 +71,10 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
   function stockLabel(item:any){const factor=Math.max(1,Number(item.units_per_package)||1);if(factor===1)return`${item.stock} ${item.unit_name||''}`.trim();const packages=Math.floor(Number(item.stock)/factor),remainder=Number(item.stock)%factor;return`${packages} ${item.unit_name||'kemasan'}${remainder?` + ${remainder} ${item.base_unit_name||'satuan'}`:''}`}
   function printReceipt(transaction:any){selectedReceipt.value=transaction;printDocument('receipt')}
 	async function simulatePendingPayment(transaction:any){
-		const result=await Swal.fire({icon:'info',title:`Pembayaran ${transaction.invoice_no}`,html:`Referensi <b>${transaction.payment.external_reference}</b>`,showDenyButton:true,showCancelButton:true,confirmButtonText:'Simulasikan Lunas',denyButtonText:'Simulasikan Gagal',cancelButtonText:'Kembali'})
+		const result=await Swal.fire({icon:'info',title:`Pembayaran ${transaction.invoice_no}`,html:`Referensi <b>${transaction.payment.external_reference}</b>`,showDenyButton:true,showCancelButton:true,confirmButtonText:'Simulasikan Lunas',denyButtonText:'Batalkan Payment',cancelButtonText:'Kembali'})
 		if(!result.isConfirmed&&!result.isDenied)return
-		await api.simulatePayment(transaction.payment.id,result.isConfirmed?'PAID':'FAILED')
+		if(result.isConfirmed)await api.simulatePayment(transaction.payment.id,'PAID')
+		else await api.cancelPayment(transaction.payment.id)
 		await Promise.all([reloadDashboard(),reloadItems(),loadTransactions(),reloadDebts()])
 	}
 

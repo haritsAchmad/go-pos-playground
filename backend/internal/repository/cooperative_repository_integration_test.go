@@ -717,6 +717,26 @@ func TestDummyAsyncPaymentIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("pending payment cancellation is idempotent", func(t *testing.T) {
+		f := newTransactionFixture(t)
+		request := f.request("SALE", 4, 0, false)
+		request.PaymentMethodID = &f.qrisID
+		request.PaymentProvider = "DUMMY"
+		transaction, err := f.repository.CreateTransaction(f.ctx, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for attempt := 0; attempt < 2; attempt++ {
+			payment, err := f.repository.SetDummyPaymentStatus(f.ctx, transaction.Payment.ID, "FAILED")
+			if err != nil || payment.Status != "FAILED" {
+				t.Fatalf("cancel attempt %d: payment=%+v err=%v", attempt+1, payment, err)
+			}
+		}
+		if stock := f.stock(t); stock != 10 {
+			t.Fatalf("stock after repeated cancellation = %d, want 10", stock)
+		}
+	})
+
 	t.Run("late paid callback persists expiry and releases reservation", func(t *testing.T) {
 		f := newTransactionFixture(t)
 		request := f.request("SALE", 10, 0, false)

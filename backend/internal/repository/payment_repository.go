@@ -86,8 +86,9 @@ func (r *CooperativeRepository) SetDummyPaymentStatus(ctx context.Context, payme
 	if payment.Status != "PENDING" {
 		return entity.Payment{}, fmt.Errorf("payment is already %s", payment.Status)
 	}
-	latePaidCallback := desired == "PAID" && !time.Now().Before(payment.ExpiresAt)
-	if latePaidCallback {
+	expiredPending := !time.Now().Before(payment.ExpiresAt)
+	latePaidCallback := desired == "PAID" && expiredPending
+	if expiredPending {
 		desired = "EXPIRED"
 	}
 
