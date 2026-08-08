@@ -46,6 +46,10 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
 		if(status==='PENDING')return`Menunggu · ${paymentCountdown(transaction)}`
 		return status||transaction.payment_status
 	}
+	function paymentExpiryMinutes(payment:any){
+		const duration=new Date(payment?.expires_at).getTime()-new Date(payment?.created_at).getTime()
+		return Math.max(1,Math.round(duration/60000))
+	}
   async function voidTransaction(v:any){const stockEffect=v.transaction_type==='SALE'?'Stok barang penjualan akan dikembalikan.':'Stok dari pembelian akan dikurangi; pembatalan ditolak jika stok sudah terpakai.';const result=await Swal.fire({icon:'warning',title:`Batalkan ${v.invoice_no}?`,text:stockEffect,input:'textarea',inputLabel:'Alasan pembatalan',inputPlaceholder:'Tulis alasan (minimal 5 karakter)',showCancelButton:true,confirmButtonText:'Ya, batalkan',cancelButtonText:'Kembali',confirmButtonColor:'#b8322a',inputValidator:(value)=>!value||value.trim().length<5?'Alasan pembatalan minimal 5 karakter.':undefined});if(!result.isConfirmed)return;await submit(()=>api.voidTransaction(v.id,result.value.trim()),`Transaksi dibatalkan. ${stockEffect}`,[reloadDashboard,reloadItems,loadTransactions,reloadDebts],false)}
   function addLine(){transactionForm.items.push(emptyLine())}
   function resetTransaction(context:string=active.value){editing.transaction=null;transactionContext.value=context==='purchase'?'purchase':'sale';Object.assign(transactionForm,{customer_id:context==='sale'?data.customers.find((c:any)=>c.code==='UMUM')?.id||null:null,supplier_id:null,payment_method_id:null,paid_amount:0,notes:'',items:[emptyLine()]})}
@@ -58,7 +62,7 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
 		const saved=await submit(async()=>{created=id?await api.updateTransaction(id,payload):await api.createTransaction(payload);return created},`${type==='SALE'?'Penjualan':'Pembelian'} berhasil ${id?'diubah':asyncPayment?'direservasi sambil menunggu pembayaran':'dicatat'}`,[reloadDashboard,reloadItems,loadTransactions,reloadDebts],`${id?'Simpan perubahan':'Simpan'} ${type==='SALE'?'penjualan':'pembelian'} sebesar ${money(lineTotal.value)}?`)
 		if(!saved)return
 		if(created?.payment){
-			const result=await Swal.fire({icon:'info',title:'Simulasi QRIS Dummy',html:`Referensi <b>${created.payment.external_reference}</b><br>Stok direservasi selama 15 menit.`,showDenyButton:true,showCancelButton:true,confirmButtonText:'Simulasikan Lunas',denyButtonText:'Simulasikan Gagal',cancelButtonText:'Biarkan Pending'})
+			const result=await Swal.fire({icon:'info',title:'Simulasi QRIS Dummy',html:`Referensi <b>${created.payment.external_reference}</b><br>Stok direservasi selama ${paymentExpiryMinutes(created.payment)} menit.`,showDenyButton:true,showCancelButton:true,confirmButtonText:'Skenario PAID',denyButtonText:'Skenario FAILED',cancelButtonText:'Biarkan PENDING'})
 			if(result.isConfirmed)await api.simulatePayment(created.payment.id,'PAID')
 			else if(result.isDenied)await api.simulatePayment(created.payment.id,'FAILED')
 			await Promise.all([reloadDashboard(),reloadItems(),loadTransactions(),reloadDebts()])
@@ -68,13 +72,12 @@ export function useTransactions(options:{api:any,data:any,active:Ref<string>,edi
   function availableUnits(line:any){const item=data.items.find((v:any)=>v.id===Number(line.item_id));if(!item)return[];const result=[{id:item.unit_id,name:item.unit_name,factor:item.units_per_package}];if(item.allow_retail&&Number(item.base_unit_id)!==Number(item.unit_id))result.push({id:item.base_unit_id,name:item.base_unit_name,factor:1});return result}
   function chooseUnit(line:any){const item=data.items.find((v:any)=>v.id===Number(line.item_id));if(!item)return;const retail=Number(line.unit_id)===Number(item.base_unit_id)&&Number(item.base_unit_id)!==Number(item.unit_id);line.unit_price=active.value==='purchase'?(retail?item.retail_cost:item.cost):(retail?item.retail_price:item.price)}
   function chooseItem(line:any){const item=data.items.find((v:any)=>v.id===Number(line.item_id));if(item){line.unit_id=item.unit_id;chooseUnit(line)}}
-  function stockLabel(item:any){const factor=Math.max(1,Number(item.units_per_package)||1);if(factor===1)return`${item.stock} ${item.unit_name||''}`.trim();const packages=Math.floor(Number(item.stock)/factor),remainder=Number(item.stock)%factor;return`${packages} ${item.unit_name||'kemasan'}${remainder?` + ${remainder} ${item.base_unit_name||'satuan'}`:''}`}
+  function stockLabel(item:any){const stock=Number(item.available_stock??item.stock);const factor=Math.max(1,Number(item.units_per_package)||1);const reserved=Number(item.reserved_stock||0);const suffix=reserved?` · ${reserved} direservasi`:'';if(factor===1)return`${stock} ${item.unit_name||''} tersedia${suffix}`.trim();const packages=Math.floor(stock/factor),remainder=stock%factor;return`${packages} ${item.unit_name||'kemasan'}${remainder?` + ${remainder} ${item.base_unit_name||'satuan'}`:''} tersedia${suffix}`}
   function printReceipt(transaction:any){selectedReceipt.value=transaction;printDocument('receipt')}
 	async function simulatePendingPayment(transaction:any){
-		const result=await Swal.fire({icon:'info',title:`Pembayaran ${transaction.invoice_no}`,html:`Referensi <b>${transaction.payment.external_reference}</b>`,showDenyButton:true,showCancelButton:true,confirmButtonText:'Simulasikan Lunas',denyButtonText:'Batalkan Payment',cancelButtonText:'Kembali'})
-		if(!result.isConfirmed&&!result.isDenied)return
-		if(result.isConfirmed)await api.simulatePayment(transaction.payment.id,'PAID')
-		else await api.cancelPayment(transaction.payment.id)
+		const result=await Swal.fire({icon:'info',title:`Pembayaran ${transaction.invoice_no}`,html:`Referensi <b>${transaction.payment.external_reference}</b>`,input:'select',inputOptions:{PAID:'PAID — finalisasi stok',FAILED:'FAILED — lepas reservasi',EXPIRED:'EXPIRED — simulasi kedaluwarsa'},inputValue:'PAID',showCancelButton:true,confirmButtonText:'Jalankan Skenario',cancelButtonText:'Kembali'})
+		if(!result.isConfirmed)return
+		await api.simulatePayment(transaction.payment.id,result.value as 'PAID'|'FAILED'|'EXPIRED')
 		await Promise.all([reloadDashboard(),reloadItems(),loadTransactions(),reloadDebts()])
 	}
 

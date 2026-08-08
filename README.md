@@ -150,6 +150,20 @@ barang satu-satuan dengan faktor `1`. Nilai `allow_retail` dapat diisi `yes`,
 
 ## Menjalankan aplikasi
 
+### Menjalankan dengan Docker Compose
+
+Untuk demo lokal lengkap tanpa menyiapkan PostgreSQL dan toolchain secara manual:
+
+```powershell
+$env:JWT_SECRET = 'ganti-dengan-secret-acak-minimal-32-karakter'
+$env:INITIAL_ADMIN_PASSWORD = 'ganti-password-admin'
+docker compose up --build
+```
+
+Buka `http://localhost:3000`. Compose menjalankan PostgreSQL 17, API Go pada jaringan internal, dan Nuxt production server. Data database disimpan di volume `postgres-data`. Nilai default di `compose.yaml` hanya untuk playground lokal; secret dan password wajib dioverride sebelum deployment.
+
+Lihat [panduan deployment](docs/deployment.md) untuk konfigurasi, healthcheck, dan operasi dasar.
+
 Terminal backend:
 
 ```powershell
@@ -403,6 +417,8 @@ Project ini dirancang, diarahkan, diuji, dan direview oleh Harits Achmad Fauzan.
 Copyright (c) 2026 Harits Achmad Fauzan. Project ini dilisensikan menggunakan [MIT License](LICENSE).
 
 Riwayat perubahan tersedia di [CHANGELOG.md](CHANGELOG.md), sedangkan arah pengembangan tersedia di [ROADMAP.md](ROADMAP.md).
+
+Simulator `QRIS Dummy` menampilkan stok fisik, stok yang sedang direservasi, dan stok yang benar-benar tersedia. Durasi reservasi dapat diatur dengan `DUMMY_PAYMENT_EXPIRY_MINUTES` (default 15 menit), sementara histori transaksi menyediakan skenario demo `PAID`, `FAILED`, dan `EXPIRED`. Payment terminal yang menerima transisi berbeda akan menghasilkan HTTP `409 Conflict`.
 
 ## Benchmark backend
 

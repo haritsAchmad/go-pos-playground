@@ -372,7 +372,7 @@ func (h *CooperativeHandler) SimulatePayment(w http.ResponseWriter, r *http.Requ
 	}
 	payment, err := h.repo.SetDummyPaymentStatus(r.Context(), id, strings.ToUpper(req.Status))
 	if err != nil {
-		if errors.Is(err, repository.ErrPaymentExpired) {
+		if errors.Is(err, repository.ErrPaymentExpired) || errors.Is(err, repository.ErrPaymentTerminal) {
 			response.Error(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -393,10 +393,13 @@ func (h *CooperativeHandler) PaymentStatus(w http.ResponseWriter, r *http.Reques
 		response.Error(w, http.StatusBadRequest, "invalid payment ID")
 		return
 	}
-	payment, err := h.repo.DummyPayment(r.Context(), id)
+	payment, expiredNow, err := h.repo.DummyPaymentStatus(r.Context(), id)
 	if err != nil {
 		response.Error(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if expiredNow {
+		w.Header().Set("X-Audit-Action", "PAYMENT_EXPIRY")
 	}
 	response.Success(w, http.StatusOK, "payment status fetched", payment)
 }
@@ -414,7 +417,11 @@ func (h *CooperativeHandler) CancelPayment(w http.ResponseWriter, r *http.Reques
 	}
 	payment, err := h.repo.SetDummyPaymentStatus(r.Context(), id, "FAILED")
 	if err != nil {
-		response.Error(w, http.StatusConflict, err.Error())
+		if errors.Is(err, repository.ErrPaymentTerminal) || errors.Is(err, repository.ErrPaymentExpired) {
+			response.Error(w, http.StatusConflict, err.Error())
+			return
+		}
+		response.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	response.Success(w, http.StatusOK, "pending payment cancelled", payment)

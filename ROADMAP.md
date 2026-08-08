@@ -39,32 +39,39 @@ Roadmap ini menggambarkan arah pengembangan Go POS Playground berdasarkan implem
 
 Lifecycle simulator sudah lengkap untuk scope portfolio/playground dan tidak terhubung ke payment gateway atau uang nyata.
 
-## In Progress — validasi v1.0.0-rc.1
+## Completed — hardening v1.0.0-rc.1
 
-### Must-have terselesaikan
+### Must-have
 
 - Verifikasi manual alur kasir dari `PENDING` menuju `PAID`, `FAILED`, dan `EXPIRED`
 - Verifikasi recovery setelah refresh dan setelah halaman histori ditutup lalu dibuka kembali
 - Jalankan seluruh quality gate sebelum tag release candidate
 
-### Should-have
+### Should-have terselesaikan
 
 - Tampilkan stok tersedia setelah memperhitungkan reservasi aktif pada pengalaman kasir
 - Berikan pesan error yang konsisten untuk konflik state dan payment yang sudah terminal
 - Tambahkan audit trail untuk perubahan status payment yang dipicu simulator atau expiry
 
-### Nice-to-have
+### Nice-to-have terselesaikan
 
 - Kontrol durasi expiry melalui konfigurasi khusus development/demo
 - Skenario demo deterministik untuk `PAID`, `FAILED`, dan `EXPIRED`
 - Indikator payment pending pada dashboard
 
-## Planned setelah v1.0.0
+Implementasi hardening mencakup stok tersedia setelah reservasi, konflik terminal berbasis HTTP `409`, aksi audit `PAYMENT_SIMULATION`/`PAYMENT_CANCEL`/`PAYMENT_EXPIRY`, expiry configurable, pemilih skenario deterministik, dan counter pending di dashboard. Seluruh Go test, integration test PostgreSQL, unit test frontend, typecheck, dan production build telah dijalankan pada 8 Agustus 2026.
 
-- Perluasan performance baseline berdasarkan pertumbuhan data dan pola beban
-- Docker dan deployment configuration
-- Redis untuk caching atau session support jika hasil pengukuran membutuhkannya
-- Background job atau queue untuk proses berat jika kompleksitas project membutuhkannya
+## Completed untuk kesiapan deployment
+
+- Performance baseline checkout dan histori berhalaman tersedia melalui benchmark PostgreSQL terisolasi
+- Image production terpisah untuk API dan web serta Docker Compose dengan PostgreSQL, healthcheck, volume, dan urutan startup
+
+## Conditional, belum dibutuhkan
+
+- Redis hanya akan ditambahkan jika pengukuran menunjukkan bottleneck caching atau session yang nyata
+- Background job atau queue hanya akan ditambahkan jika ada proses berat yang tidak layak ditangani sinkron
+
+Kedua item conditional bukan pekerjaan release yang tertunda: arsitektur saat ini belum memiliki kebutuhan terukur yang membenarkan kompleksitas operasional tersebut.
 
 ## Not Planned
 

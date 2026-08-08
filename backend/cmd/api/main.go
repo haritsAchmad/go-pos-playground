@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strconv"
+	"time"
 
 	"go-pos-playground/internal/auth"
 	"go-pos-playground/internal/config"
@@ -48,7 +50,15 @@ func main() {
 	itemHandler := handler.NewItemHandler(itemRepo)
 	supplierRepo := repository.NewSupplierRepository(db, cfg.DBSchema)
 	supplierHandler := handler.NewSupplierHandler(supplierRepo)
-	cooperativeRepo := repository.NewCooperativeRepository(db, cfg.DBSchema)
+	paymentExpiry := 15 * time.Minute
+	if value := cfg.DummyPaymentExpiryMinutes; value != "" {
+		minutes, err := strconv.Atoi(value)
+		if err != nil || minutes < 1 || minutes > 1440 {
+			log.Fatal("DUMMY_PAYMENT_EXPIRY_MINUTES must be between 1 and 1440")
+		}
+		paymentExpiry = time.Duration(minutes) * time.Minute
+	}
+	cooperativeRepo := repository.NewCooperativeRepository(db, cfg.DBSchema, paymentExpiry)
 	cooperativeHandler := handler.NewCooperativeHandler(cooperativeRepo)
 
 	r := router.New(itemHandler, supplierHandler, cooperativeHandler, authHandler, auditHandler, tokens, authRepo, auditRepo)

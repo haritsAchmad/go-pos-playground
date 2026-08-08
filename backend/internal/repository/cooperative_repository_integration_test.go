@@ -676,6 +676,10 @@ func TestDummyAsyncPaymentIntegration(t *testing.T) {
 		if stock := f.stock(t); stock != 10 {
 			t.Fatalf("stock while pending = %d, want 10", stock)
 		}
+		item, err := NewItemRepository(f.db, f.schema).FindByID(f.ctx, int(f.itemID))
+		if err != nil || item == nil || item.ReservedStock != 2 || item.AvailableStock != 8 {
+			t.Fatalf("available stock while pending: item=%+v err=%v", item, err)
+		}
 		if _, err := f.repository.UpdateTransaction(f.ctx, transaction.ID, f.request("SALE", 1, 1000, false)); err == nil {
 			t.Fatal("expected provider transaction edit to be rejected")
 		}

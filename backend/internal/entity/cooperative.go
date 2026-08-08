@@ -113,21 +113,22 @@ type StockMovement struct {
 }
 
 type Dashboard struct {
-	TodaySales     int64          `json:"today_sales"`
-	TodayPurchases int64          `json:"today_purchases"`
-	OpenDebt       int64          `json:"open_debt"`
-	LowStockItems  int64          `json:"low_stock_items"`
-	TotalItems     int64          `json:"total_items"`
-	TotalCustomers int64          `json:"total_customers"`
-	TotalSuppliers int64          `json:"total_suppliers"`
-	Year           int            `json:"year"`
-	MonthlySales   []int64        `json:"monthly_sales"`
-	Month          int            `json:"month"`
-	Today          PeriodSummary  `json:"today"`
-	Yesterday      PeriodSummary  `json:"yesterday"`
-	SelectedMonth  PeriodSummary  `json:"selected_month"`
-	SelectedYear   PeriodSummary  `json:"selected_year"`
-	Daily          []DailySummary `json:"daily"`
+	TodaySales      int64          `json:"today_sales"`
+	TodayPurchases  int64          `json:"today_purchases"`
+	OpenDebt        int64          `json:"open_debt"`
+	LowStockItems   int64          `json:"low_stock_items"`
+	TotalItems      int64          `json:"total_items"`
+	TotalCustomers  int64          `json:"total_customers"`
+	TotalSuppliers  int64          `json:"total_suppliers"`
+	PendingPayments int64          `json:"pending_payments"`
+	Year            int            `json:"year"`
+	MonthlySales    []int64        `json:"monthly_sales"`
+	Month           int            `json:"month"`
+	Today           PeriodSummary  `json:"today"`
+	Yesterday       PeriodSummary  `json:"yesterday"`
+	SelectedMonth   PeriodSummary  `json:"selected_month"`
+	SelectedYear    PeriodSummary  `json:"selected_year"`
+	Daily           []DailySummary `json:"daily"`
 }
 
 type PeriodSummary struct {

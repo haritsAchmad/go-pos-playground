@@ -1,0 +1,10 @@
+.git
+.agents
+tmp
+backend/.env
+frontend/node_modules
+frontend/.nuxt
+frontend/.output
+frontend/test-results
+frontend/playwright-report
+**/*.log

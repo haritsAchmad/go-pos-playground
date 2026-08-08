@@ -36,7 +36,8 @@ func (w *auditResponseWriter) Write(value []byte) (int, error) {
 
 func Audit(store AuditStore, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodDelete {
+		paymentStatusRead := r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/payments/")
+		if r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodDelete && !paymentStatusRead {
 			next(w, r)
 			return
 		}
@@ -47,6 +48,9 @@ func Audit(store AuditStore, next http.HandlerFunc) http.HandlerFunc {
 		}
 		writer := &auditResponseWriter{ResponseWriter: w}
 		next(writer, r)
+		if paymentStatusRead && writer.Header().Get("X-Audit-Action") == "" {
+			return
+		}
 		statusCode := writer.statusCode
 		if statusCode == 0 {
 			statusCode = http.StatusOK
@@ -59,9 +63,13 @@ func Audit(store AuditStore, next http.HandlerFunc) http.HandlerFunc {
 		if targets := writer.Header().Get("X-Audit-Targets"); targets != "" {
 			entityID = targets
 		}
+		action := auditAction(r.Method, r.URL.Path)
+		if headerAction := writer.Header().Get("X-Audit-Action"); headerAction != "" {
+			action = headerAction
+		}
 		_ = store.Record(r.Context(), entity.AuditEntry{
 			UserID: userID, UserName: claims.Name, UserEmail: claims.Email,
-			Action:     auditAction(r.Method, r.URL.Path),
+			Action:     action,
 			EntityType: entityType, EntityID: entityID,
 			Method: r.Method, Path: r.URL.Path, StatusCode: statusCode,
 			IPAddress: requestIP(r), UserAgent: r.UserAgent(),
@@ -70,6 +78,12 @@ func Audit(store AuditStore, next http.HandlerFunc) http.HandlerFunc {
 }
 
 func auditAction(method, path string) string {
+	if strings.HasPrefix(path, "/payments/") && strings.HasSuffix(path, "/simulate") {
+		return "PAYMENT_SIMULATION"
+	}
+	if strings.HasPrefix(path, "/payments/") && strings.HasSuffix(path, "/cancel") {
+		return "PAYMENT_CANCEL"
+	}
 	if strings.HasSuffix(path, "/reverse") {
 		return "PAYMENT_REVERSAL"
 	}

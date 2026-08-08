@@ -117,10 +117,13 @@ func itemQueryParts(query listquery.Params) (string, string, []any, error) {
 
 func (r *ItemRepository) find(ctx context.Context, where, order, paging string, args []any) ([]entity.Items, error) {
 	query := fmt.Sprintf(`
-		SELECT i.id,i.supplier_id,COALESCE(i.sku,''),i.category_id,c.name,i.brand_id,b.name,i.unit_id,u.name,i.base_unit_id,bu.name,i.units_per_package,i.allow_retail,i.name,i.description,i.stock,i.price,i.cost,i.retail_price,i.retail_cost,i.created_at,i.updated_at
+		SELECT i.id,i.supplier_id,COALESCE(i.sku,''),i.category_id,c.name,i.brand_id,b.name,i.unit_id,u.name,i.base_unit_id,bu.name,i.units_per_package,i.allow_retail,i.name,i.description,i.stock,
+			COALESCE((SELECT SUM(sr.quantity) FROM %s.stock_reservations sr WHERE sr.item_id=i.id AND sr.status='ACTIVE' AND sr.expires_at>NOW()),0),
+			i.stock-COALESCE((SELECT SUM(sr.quantity) FROM %s.stock_reservations sr WHERE sr.item_id=i.id AND sr.status='ACTIVE' AND sr.expires_at>NOW()),0),
+			i.price,i.cost,i.retail_price,i.retail_cost,i.created_at,i.updated_at
 		FROM %s.items i LEFT JOIN %s.categories c ON c.id=i.category_id LEFT JOIN %s.brands b ON b.id=i.brand_id LEFT JOIN %s.units u ON u.id=i.unit_id LEFT JOIN %s.units bu ON bu.id=i.base_unit_id
 		%s%s%s
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, where, order, paging)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, order, paging)
 
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
@@ -141,6 +144,8 @@ func (r *ItemRepository) find(ctx context.Context, where, order, paging string, 
 			&item.Name,
 			&item.Description,
 			&item.Stock,
+			&item.ReservedStock,
+			&item.AvailableStock,
 			&item.Price,
 			&item.Cost,
 			&item.RetailPrice,
@@ -219,10 +224,13 @@ func (r *ItemRepository) Create(
 
 func (r *ItemRepository) FindByID(ctx context.Context, id int) (*entity.Items, error) {
 	query := fmt.Sprintf(`
-		SELECT i.id,i.supplier_id,COALESCE(i.sku,''),i.category_id,c.name,i.brand_id,b.name,i.unit_id,u.name,i.base_unit_id,bu.name,i.units_per_package,i.allow_retail,i.name,i.description,i.stock,i.price,i.cost,i.retail_price,i.retail_cost,i.created_at,i.updated_at
+		SELECT i.id,i.supplier_id,COALESCE(i.sku,''),i.category_id,c.name,i.brand_id,b.name,i.unit_id,u.name,i.base_unit_id,bu.name,i.units_per_package,i.allow_retail,i.name,i.description,i.stock,
+			COALESCE((SELECT SUM(sr.quantity) FROM %s.stock_reservations sr WHERE sr.item_id=i.id AND sr.status='ACTIVE' AND sr.expires_at>NOW()),0),
+			i.stock-COALESCE((SELECT SUM(sr.quantity) FROM %s.stock_reservations sr WHERE sr.item_id=i.id AND sr.status='ACTIVE' AND sr.expires_at>NOW()),0),
+			i.price,i.cost,i.retail_price,i.retail_cost,i.created_at,i.updated_at
 		FROM %s.items i LEFT JOIN %s.categories c ON c.id=i.category_id LEFT JOIN %s.brands b ON b.id=i.brand_id LEFT JOIN %s.units u ON u.id=i.unit_id LEFT JOIN %s.units bu ON bu.id=i.base_unit_id
 		WHERE i.id=$1 AND i.deleted_at IS NULL
-	`, r.schema, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 
 	var item entity.Items
 
@@ -234,6 +242,8 @@ func (r *ItemRepository) FindByID(ctx context.Context, id int) (*entity.Items, e
 		&item.Name,
 		&item.Description,
 		&item.Stock,
+		&item.ReservedStock,
+		&item.AvailableStock,
 		&item.Price,
 		&item.Cost,
 		&item.RetailPrice,

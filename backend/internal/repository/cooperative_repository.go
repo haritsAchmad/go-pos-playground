@@ -21,8 +21,9 @@ import (
 var ErrIdempotencyConflict = errors.New("idempotency key has already been used with different transaction data")
 
 type CooperativeRepository struct {
-	db     *pgxpool.Pool
-	schema string
+	db            *pgxpool.Pool
+	schema        string
+	paymentExpiry time.Duration
 }
 
 func (r *CooperativeRepository) recordStockMovement(ctx context.Context, tx pgx.Tx, itemID int64, movementType string, before, change int, notes string) error {
@@ -53,8 +54,12 @@ func (r *CooperativeRepository) StockMovements(ctx context.Context, itemID int64
 	return result, rows.Err()
 }
 
-func NewCooperativeRepository(db *pgxpool.Pool, schema string) *CooperativeRepository {
-	return &CooperativeRepository{db: db, schema: pgx.Identifier{schema}.Sanitize()}
+func NewCooperativeRepository(db *pgxpool.Pool, schema string, paymentExpiry ...time.Duration) *CooperativeRepository {
+	expiry := 15 * time.Minute
+	if len(paymentExpiry) > 0 && paymentExpiry[0] > 0 {
+		expiry = paymentExpiry[0]
+	}
+	return &CooperativeRepository{db: db, schema: pgx.Identifier{schema}.Sanitize(), paymentExpiry: expiry}
 }
 
 func (r *CooperativeRepository) Masters(ctx context.Context, table string) ([]entity.MasterData, error) {
@@ -547,7 +552,7 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 	}
 	var payment *entity.Payment
 	if asyncPayment {
-		expiresAt := time.Now().Add(15 * time.Minute)
+		expiresAt := time.Now().Add(r.paymentExpiry)
 		payment = &entity.Payment{TransactionID: id, Provider: req.PaymentProvider, ExternalReference: "DUMMY-" + invoice, Status: "PENDING", Amount: total, ExpiresAt: expiresAt}
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.payments(transaction_id,provider,external_reference,status,amount,expires_at)
@@ -1246,7 +1251,7 @@ func (r *CooperativeRepository) Dashboard(ctx context.Context, year, month int) 
 	v.Year = year
 	v.Month = month
 	v.MonthlySales = make([]int64, 12)
-	err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((SELECT SUM(grand_total) FROM %s.transactions WHERE transaction_type='SALE' AND status='ACTIVE' AND (transaction_date AT TIME ZONE 'Asia/Jakarta')::date=(NOW() AT TIME ZONE 'Asia/Jakarta')::date),0),COALESCE((SELECT SUM(grand_total) FROM %s.transactions WHERE transaction_type='PURCHASE' AND status='ACTIVE' AND (transaction_date AT TIME ZONE 'Asia/Jakarta')::date=(NOW() AT TIME ZONE 'Asia/Jakarta')::date),0),COALESCE((SELECT SUM(remaining_amount) FROM %s.debts WHERE status='OPEN'),0),(SELECT COUNT(*) FROM %s.items WHERE deleted_at IS NULL AND stock<=5),(SELECT COUNT(*) FROM %s.items WHERE deleted_at IS NULL),(SELECT COUNT(*) FROM %s.customers WHERE deleted_at IS NULL),(SELECT COUNT(*) FROM %s.suppliers WHERE deleted_at IS NULL)`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)).Scan(&v.TodaySales, &v.TodayPurchases, &v.OpenDebt, &v.LowStockItems, &v.TotalItems, &v.TotalCustomers, &v.TotalSuppliers)
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE((SELECT SUM(grand_total) FROM %s.transactions WHERE transaction_type='SALE' AND status='ACTIVE' AND (transaction_date AT TIME ZONE 'Asia/Jakarta')::date=(NOW() AT TIME ZONE 'Asia/Jakarta')::date),0),COALESCE((SELECT SUM(grand_total) FROM %s.transactions WHERE transaction_type='PURCHASE' AND status='ACTIVE' AND (transaction_date AT TIME ZONE 'Asia/Jakarta')::date=(NOW() AT TIME ZONE 'Asia/Jakarta')::date),0),COALESCE((SELECT SUM(remaining_amount) FROM %s.debts WHERE status='OPEN'),0),(SELECT COUNT(*) FROM %s.items WHERE deleted_at IS NULL AND stock<=5),(SELECT COUNT(*) FROM %s.items WHERE deleted_at IS NULL),(SELECT COUNT(*) FROM %s.customers WHERE deleted_at IS NULL),(SELECT COUNT(*) FROM %s.suppliers WHERE deleted_at IS NULL),(SELECT COUNT(*) FROM %s.payments WHERE status='PENDING' AND expires_at>NOW())`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)).Scan(&v.TodaySales, &v.TodayPurchases, &v.OpenDebt, &v.LowStockItems, &v.TotalItems, &v.TotalCustomers, &v.TotalSuppliers, &v.PendingPayments)
 	if err != nil {
 		return v, err
 	}

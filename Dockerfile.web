@@ -1,0 +1,16 @@
+FROM node:22-alpine AS build
+ARG NUXT_API_PROXY_TARGET=http://api:8082
+ENV NUXT_API_PROXY_TARGET=$NUXT_API_PROXY_TARGET
+WORKDIR /src
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+FROM node:22-alpine
+ENV NODE_ENV=production NITRO_HOST=0.0.0.0 NITRO_PORT=3000
+WORKDIR /app
+COPY --from=build --chown=node:node /src/.output/ ./
+USER node
+EXPOSE 3000
+CMD ["node", "server/index.mjs"]

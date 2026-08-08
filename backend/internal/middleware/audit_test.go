@@ -61,3 +61,43 @@ func TestAuditNamesPaymentReversal(t *testing.T) {
 		t.Fatalf("unexpected reversal audit entry: %+v", store.entries)
 	}
 }
+
+func TestAuditNamesDummyPaymentTransitions(t *testing.T) {
+	tests := []struct{ path, action string }{
+		{"/payments/12/simulate", "PAYMENT_SIMULATION"},
+		{"/payments/12/cancel", "PAYMENT_CANCEL"},
+	}
+	for _, test := range tests {
+		t.Run(test.action, func(t *testing.T) {
+			store := &auditStoreStub{}
+			next := Audit(store, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+			request := httptest.NewRequest(http.MethodPost, test.path, nil)
+			ctx := context.WithValue(request.Context(), claimsKey, auth.Claims{Subject: "7"})
+			next(httptest.NewRecorder(), request.WithContext(ctx))
+			if len(store.entries) != 1 || store.entries[0].Action != test.action || store.entries[0].EntityID != "12" {
+				t.Fatalf("unexpected payment audit entry: %+v", store.entries)
+			}
+		})
+	}
+}
+
+func TestAuditRecordsOnlyPaymentReadThatExpires(t *testing.T) {
+	store := &auditStoreStub{}
+	next := Audit(store, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Audit-Action", "PAYMENT_EXPIRY")
+		w.WriteHeader(http.StatusOK)
+	})
+	request := httptest.NewRequest(http.MethodGet, "/payments/12", nil)
+	ctx := context.WithValue(request.Context(), claimsKey, auth.Claims{Subject: "7"})
+	next(httptest.NewRecorder(), request.WithContext(ctx))
+	if len(store.entries) != 1 || store.entries[0].Action != "PAYMENT_EXPIRY" {
+		t.Fatalf("unexpected expiry audit entry: %+v", store.entries)
+	}
+
+	store.entries = nil
+	next = Audit(store, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	next(httptest.NewRecorder(), request.WithContext(ctx))
+	if len(store.entries) != 0 {
+		t.Fatalf("ordinary payment polling must not be audited: %+v", store.entries)
+	}
+}

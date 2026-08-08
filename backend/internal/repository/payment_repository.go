@@ -12,20 +12,30 @@ import (
 )
 
 var ErrPaymentExpired = errors.New("payment expired before it could be paid")
+var ErrPaymentTerminal = errors.New("payment is already terminal")
 
 func (r *CooperativeRepository) DummyPayment(ctx context.Context, paymentID int64) (entity.Payment, error) {
+	payment, _, err := r.DummyPaymentStatus(ctx, paymentID)
+	return payment, err
+}
+
+// DummyPaymentStatus reports whether this read persisted an automatic expiry.
+// Polling callers can use the transition flag without treating every status read as a mutation.
+func (r *CooperativeRepository) DummyPaymentStatus(ctx context.Context, paymentID int64) (entity.Payment, bool, error) {
 	payment, err := r.dummyPayment(ctx, paymentID)
 	if err != nil {
-		return entity.Payment{}, err
+		return entity.Payment{}, false, err
 	}
 	if payment.Status == "PENDING" && !time.Now().Before(payment.ExpiresAt) {
 		payment, err = r.SetDummyPaymentStatus(ctx, paymentID, "EXPIRED")
 		if err != nil {
 			// Another request may have completed the payment after the initial read.
-			return r.dummyPayment(ctx, paymentID)
+			payment, err = r.dummyPayment(ctx, paymentID)
+			return payment, false, err
 		}
+		return payment, true, nil
 	}
-	return payment, nil
+	return payment, false, nil
 }
 
 func (r *CooperativeRepository) dummyPayment(ctx context.Context, paymentID int64) (entity.Payment, error) {
@@ -84,7 +94,7 @@ func (r *CooperativeRepository) SetDummyPaymentStatus(ctx context.Context, payme
 		return payment, nil
 	}
 	if payment.Status != "PENDING" {
-		return entity.Payment{}, fmt.Errorf("payment is already %s", payment.Status)
+		return entity.Payment{}, fmt.Errorf("%w: %s", ErrPaymentTerminal, payment.Status)
 	}
 	expiredPending := !time.Now().Before(payment.ExpiresAt)
 	latePaidCallback := desired == "PAID" && expiredPending

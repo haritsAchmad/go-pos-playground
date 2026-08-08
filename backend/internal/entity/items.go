@@ -19,6 +19,8 @@ type Items struct {
 	Name            string    `json:"name"`
 	Description     string    `json:"description"`
 	Stock           int       `json:"stock"`
+	ReservedStock   int       `json:"reserved_stock"`
+	AvailableStock  int       `json:"available_stock"`
 	Price           int64     `json:"price"`
 	Cost            int64     `json:"cost"`
 	RetailPrice     int64     `json:"retail_price"`

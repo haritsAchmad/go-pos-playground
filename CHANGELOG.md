@@ -6,6 +6,13 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 ### Added
 
+- Stok tersedia (`available_stock`) dan stok terreservasi (`reserved_stock`) pada API barang serta tampilan kasir.
+- Audit trail khusus `PAYMENT_SIMULATION`, `PAYMENT_CANCEL`, dan `PAYMENT_EXPIRY`; polling biasa tidak menghasilkan noise audit.
+- Konfigurasi `DUMMY_PAYMENT_EXPIRY_MINUTES` dengan validasi 1–1440 menit.
+- Pemilih skenario demo deterministik `PAID`, `FAILED`, dan `EXPIRED` pada histori transaksi.
+- Indikator jumlah payment pending aktif pada dashboard.
+- Dockerfile production API/web dan Docker Compose untuk PostgreSQL, healthcheck, persistent volume, serta startup dependency.
+- Integration assertion untuk stok tersedia selama reservasi payment pending.
 - Nomor invoice transaksi berbasis sequence PostgreSQL yang aman untuk checkout paralel.
 - Integration test concurrent checkout untuk memastikan invoice unik dan stok tetap konsisten.
 - Idempotency key checkout untuk mencegah transaksi dan pengurangan stok ganda saat request diulang.
@@ -60,6 +67,8 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 ### Changed
 
+- Konflik perubahan payment yang sudah terminal kini konsisten menggunakan HTTP `409 Conflict`.
+- Pesan expiry pada frontend mengikuti durasi aktual dari backend dan tidak lagi mengasumsikan 15 menit.
 - Kontrol jumlah baris dipindahkan ke area filter, pagination memakai nomor halaman, dan tombol refresh ditempatkan dekat data yang diperbarui.
 - Expiry JWT dan activity throttle diekstrak menjadi utility session yang dapat diuji.
 - Activity tracker membersihkan DOM listener dan page hook ketika plugin mengalami hot reload.
