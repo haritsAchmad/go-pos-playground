@@ -4,6 +4,10 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 ## Unreleased
 
+Belum ada perubahan setelah kandidat rilis pertama.
+
+## v1.0.0-rc.1 - 2026-08-19
+
 ### Added
 
 - Stok tersedia (`available_stock`) dan stok terreservasi (`reserved_stock`) pada API barang serta tampilan kasir.

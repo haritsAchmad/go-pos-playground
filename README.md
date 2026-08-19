@@ -366,7 +366,7 @@ go run ./cmd/seed `
 
 ## Roadmap
 
-Pengembangan berikutnya berfokus pada pencarian, sorting, dan filtering API, session management, observability, serta deployment. Status lengkap dan prioritas terkini tersedia di [ROADMAP.md](ROADMAP.md).
+Fitur utama dan hardening teknis untuk `v1.0.0-rc.1` telah selesai. Tahap berikutnya berfokus pada validasi manual end-to-end dan smoke test deployment sebelum promosi ke `v1.0.0` stabil. Status lengkap dan prioritas terkini tersedia di [ROADMAP.md](ROADMAP.md).
 
 ### Query katalog barang
 

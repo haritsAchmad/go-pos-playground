@@ -59,7 +59,7 @@ Lifecycle simulator sudah lengkap untuk scope portfolio/playground dan tidak ter
 - Skenario demo deterministik untuk `PAID`, `FAILED`, dan `EXPIRED`
 - Indikator payment pending pada dashboard
 
-Implementasi hardening mencakup stok tersedia setelah reservasi, konflik terminal berbasis HTTP `409`, aksi audit `PAYMENT_SIMULATION`/`PAYMENT_CANCEL`/`PAYMENT_EXPIRY`, expiry configurable, pemilih skenario deterministik, dan counter pending di dashboard. Seluruh Go test, integration test PostgreSQL, unit test frontend, typecheck, dan production build telah dijalankan pada 8 Agustus 2026.
+Implementasi hardening mencakup stok tersedia setelah reservasi, konflik terminal berbasis HTTP `409`, aksi audit `PAYMENT_SIMULATION`/`PAYMENT_CANCEL`/`PAYMENT_EXPIRY`, expiry configurable, pemilih skenario deterministik, dan counter pending di dashboard. Seluruh Go test, integration test PostgreSQL, unit test frontend, typecheck, production build, serta 489 skenario authorization E2E lintas Chromium, Chrome, Edge, dan Firefox terakhir lulus pada 19 Agustus 2026 tanpa Docker.
 
 ## Completed untuk kesiapan deployment
 
@@ -80,4 +80,4 @@ Kedua item conditional bukan pekerjaan release yang tertunda: arsitektur saat in
 
 ## Release direction
 
-Simulated non-cash payment ditargetkan selesai pada `v1.0.0-rc.1`. Fitur ini cukup penting untuk melengkapi alur portfolio yang sudah diperkenalkan oleh backend, tetapi harus melewati hardening dan validasi end-to-end pada release candidate sebelum `v1.0.0` stabil.
+Simulated non-cash payment dan hardening teknisnya telah selesai untuk `v1.0.0-rc.1`. Quality gate otomatis non-Docker telah lulus; validasi manual end-to-end dan smoke test deployment tetap menjadi syarat sebelum promosi ke `v1.0.0` stabil.
