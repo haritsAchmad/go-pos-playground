@@ -4,7 +4,9 @@ Semua perubahan penting pada backend dan frontend Go POS Playground dicatat di f
 
 ## Unreleased
 
-Belum ada perubahan setelah kandidat rilis pertama.
+### Fixed
+
+- Deadlock antar-transaksi yang memuat barang sama dengan urutan keranjang berbeda (mis. sabun lalu beras vs beras lalu sabun) pada checkout, edit transaksi, dan pembatalan transaksi. Sebelumnya baris barang dikunci mengikuti urutan keranjang sehingga PostgreSQL bisa membatalkan salah satu transaksi dengan `deadlock detected (40P01)`; kini semua barang yang stoknya berubah dikunci sekaligus berurutan menurut ID sebelum perubahan stok, seperti finalisasi payment yang sudah memakai `ORDER BY item_id`. Integration test memaksa urutan kunci yang menghasilkan deadlock (koneksi ketiga menahan barang pertama) untuk ketiga alur.
 
 ## v1.0.0-rc.1 - 2026-08-19
 

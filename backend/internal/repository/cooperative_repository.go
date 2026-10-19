@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -430,6 +431,37 @@ func (r *CooperativeRepository) resolveTransactionLine(ctx context.Context, tx p
 	return nil
 }
 
+// lockItems locks the item rows a stock change will touch, in ascending ID
+// order, before any other item lock in the transaction. Without one shared
+// order, a checkout of (soap, rice) and one of (rice, soap) can each hold one
+// row and wait for the other; PostgreSQL then aborts one of them with
+// "deadlock detected". Later per-row FOR UPDATE reads in the same transaction
+// do not wait again.
+func (r *CooperativeRepository) lockItems(ctx context.Context, tx pgx.Tx, ids []int64) error {
+	ids = slices.Clone(ids)
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT id FROM %s.items WHERE id = ANY($1) ORDER BY id FOR UPDATE`, r.schema), ids)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+	}
+	rows.Close()
+	return rows.Err()
+}
+
+func lineItemIDs(lines []entity.TransactionLine) []int64 {
+	ids := make([]int64, 0, len(lines))
+	for _, line := range lines {
+		ids = append(ids, line.ItemID)
+	}
+	return ids
+}
+
 func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entity.CreateTransactionRequest) (entity.Transaction, error) {
 	requestHash := ""
 	if req.IdempotencyKey != "" {
@@ -560,6 +592,9 @@ func (r *CooperativeRepository) CreateTransaction(ctx context.Context, req entit
 		`, r.schema), id, payment.Provider, payment.ExternalReference, total, expiresAt).Scan(&payment.ID, &payment.CreatedAt); err != nil {
 			return entity.Transaction{}, err
 		}
+	}
+	if err := r.lockItems(ctx, tx, lineItemIDs(req.Items)); err != nil {
+		return entity.Transaction{}, err
 	}
 	for _, line := range req.Items {
 		var stock int
@@ -837,6 +872,13 @@ func (r *CooperativeRepository) UpdateTransaction(ctx context.Context, id int64,
 		old = append(old, v)
 	}
 	oldRows.Close()
+	itemIDs := lineItemIDs(req.Items)
+	for _, v := range old {
+		itemIDs = append(itemIDs, v.itemID)
+	}
+	if err := r.lockItems(ctx, tx, itemIDs); err != nil {
+		return entity.Transaction{}, err
+	}
 	for _, v := range old {
 		change := v.quantity
 		if kind == "PURCHASE" {
@@ -998,6 +1040,13 @@ func (r *CooperativeRepository) VoidTransaction(ctx context.Context, id int64, r
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
+		return err
+	}
+	itemIDs := make([]int64, 0, len(lines))
+	for _, v := range lines {
+		itemIDs = append(itemIDs, v.id)
+	}
+	if err := r.lockItems(ctx, tx, itemIDs); err != nil {
 		return err
 	}
 	for _, v := range lines {
