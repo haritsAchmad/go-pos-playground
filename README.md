@@ -416,6 +416,8 @@ Project ini dirancang, diarahkan, diuji, dan direview oleh Harits Achmad Fauzan.
 
 Copyright (c) 2026 Harits Achmad Fauzan. Project ini dilisensikan menggunakan [MIT License](LICENSE).
 
+Library, program, font, dan aset pihak lain beserta lisensinya dicatat di [CREDITS.md](CREDITS.md).
+
 Riwayat perubahan tersedia di [CHANGELOG.md](CHANGELOG.md), sedangkan arah pengembangan tersedia di [ROADMAP.md](ROADMAP.md).
 
 Simulator `QRIS Dummy` menampilkan stok fisik, stok yang sedang direservasi, dan stok yang benar-benar tersedia. Durasi reservasi dapat diatur dengan `DUMMY_PAYMENT_EXPIRY_MINUTES` (default 15 menit), sementara histori transaksi menyediakan skenario demo `PAID`, `FAILED`, dan `EXPIRED`. Payment terminal yang menerima transisi berbeda akan menghasilkan HTTP `409 Conflict`.
